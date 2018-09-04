@@ -157,6 +157,20 @@ Expr directNullGuard(SsaVariable v, boolean branch, boolean isnull) {
 Guard nullGuard(SsaVariable v, boolean branch, boolean isnull) {
   result = directNullGuard(v, branch, isnull) or
   exists(boolean branch0 | implies_v3(result, branch, nullGuard(v, branch0, isnull), branch0))
+  or
+  exists(SsaVariable pri |
+    result = nullGuard(pri, branch, isnull) and
+    isnull = false and
+    step(pri, v)
+  )
+}
+
+predicate step(SsaVariable prior, SsaUncertainImplicitUpdate v) {
+not v.assignsUnknownValue() and
+forex(FieldWrite fw | fw = v.getANonLocalUpdate() |
+  exists(AssignExpr a | a.getDest() = fw and a.getSource() = clearlyNotNullExpr())
+) and
+prior = v.getPriorDef()
 }
 
 /**
