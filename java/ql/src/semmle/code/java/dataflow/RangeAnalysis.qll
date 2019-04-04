@@ -91,6 +91,20 @@ private module RangeAnalysisCache {
     predicate bounded(Expr e, Bound b, int delta, boolean upper, Reason reason) {
       bounded(e, b, delta, upper, _, _, reason)
     }
+
+    /**
+     * Holds if `b + delta` is a valid bound for the length of `arr`.
+     * - `upper = true`  : `arr.length <= b + delta`
+     * - `upper = false` : `arr.length >= b + delta`
+     *
+     * The reason for the bound is given by `reason` and may be either a condition
+     * or `NoReason` if the bound was proven directly without the use of a bounding
+     * condition.
+     */
+    cached
+    predicate boundedArrayLen(Expr arr, Bound b, int delta, boolean upper, Reason reason) {
+      boundedArrayLen0(arr, b, delta, upper, reason)
+    }
   }
 
   /**
@@ -279,6 +293,34 @@ private predicate boundFlowStepSsa(
   or
   exists(Guard guard, boolean testIsTrue |
     pos.hasReadOfVar(v) and
+    guard = boundFlowCond(v, e, delta, upper, testIsTrue) and
+    guardDirectlyControlsSsaRead(guard, pos, testIsTrue) and
+    reason = TCondReason(guard)
+  )
+}
+
+/**
+ * Holds if `e + delta` is a valid bound for the length of `arr` at `pos`.
+ * - `upper = true`  : `arr.length <= e + delta`
+ * - `upper = false` : `arr.length >= e + delta`
+ */
+private predicate boundFlowStepSsaArrayLen(
+  SsaVariable arr, SsaReadPosition pos, Expr e, int delta, boolean upper, Reason reason
+) {
+  exists(ArrayCreationExpr def |
+    def = getArrayDef(arr) and
+    pos.hasReadOfVar(arr) and
+    def.getDimension(0) = e and
+    delta = 0 and
+    (upper = true or upper = false) and
+    reason = TNoReason()
+  )
+  or
+  exists(Guard guard, boolean testIsTrue, SsaVariable v, FieldAccess len |
+    v.getAUse() = len and
+    len.getField() instanceof ArrayLengthField and
+    len.getQualifier() = arr.getAUse() and
+    pos.hasReadOfVar(arr) and
     guard = boundFlowCond(v, e, delta, upper, testIsTrue) and
     guardDirectlyControlsSsaRead(guard, pos, testIsTrue) and
     reason = TCondReason(guard)
@@ -834,4 +876,44 @@ private predicate boundedConditionalExpr(
   branch = true and bounded(cond.getTrueExpr(), b, delta, upper, fromBackEdge, origdelta, reason)
   or
   branch = false and bounded(cond.getFalseExpr(), b, delta, upper, fromBackEdge, origdelta, reason)
+}
+
+/**
+ * Holds if `b + delta` is a valid bound for the length of `arr` at `pos`.
+ * - `upper = true`  : `arr.length <= b + delta`
+ * - `upper = false` : `arr.length >= b + delta`
+ */
+private predicate boundedSsaArrayLen(
+  SsaVariable arr, SsaReadPosition pos, Bound b, int delta, boolean upper, Reason reason
+) {
+  exists(Expr mid, int d1, int d2, Reason r1, Reason r2 |
+    boundFlowStepSsaArrayLen(arr, pos, mid, d1, upper, r1) and
+    bounded(mid, b, d2, upper, _, _, r2) and
+    delta = d1 + d2 and
+    (if r1 instanceof NoReason then reason = r2 else reason = r1) and
+    // exclude trivial bounds
+    not (b instanceof ZeroBound and upper = false and delta <= 0)
+  )
+}
+
+/**
+ * Holds if `b + delta` is a valid bound for the length of `arr`.
+ * - `upper = true`  : `arr.length <= b + delta`
+ * - `upper = false` : `arr.length >= b + delta`
+ */
+private predicate boundedArrayLen0(Expr arr, Bound b, int delta, boolean upper, Reason reason) {
+  exists(SsaVariable a, SsaReadPositionBlock bb |
+    boundedSsaArrayLen(a, bb, b, delta, upper, reason) and
+    arr = a.getAUse() and
+    bb.getBlock() = arr.getBasicBlock()
+  )
+  or
+  exists(SsaVariable a, ArrayCreationExpr arraycreation |
+    arr = a.getAUse() and
+    arraycreation = getArrayDef(a) and
+    arraycreation.getFirstDimensionSize() = delta and
+    b instanceof ZeroBound and
+    (upper = true or upper = false) and
+    reason instanceof NoReason
+  )
 }

@@ -20,30 +20,46 @@ import semmle.code.java.dataflow.RangeAnalysis
  * Holds if the index expression of `aa` is less than or equal to the array length plus `k`.
  */
 predicate boundedArrayAccess(ArrayAccess aa, int k) {
-  exists(SsaVariable arr, Expr index, Bound b, int delta |
+  exists(Expr index, Bound b, int delta |
     aa.getIndexExpr() = index and
-    aa.getArray() = arr.getAUse() and
     bounded(index, b, delta, true, _)
   |
-    exists(FieldAccess len |
+    exists(SsaVariable arr, FieldAccess len |
+      aa.getArray() = arr.getAUse() and
       len.getField() instanceof ArrayLengthField and
       len.getQualifier() = arr.getAUse() and
       b.getExpr() = len and
       k = delta
     )
     or
-    exists(ArrayCreationExpr arraycreation | arraycreation = getArrayDef(arr) |
-      k = delta and
-      arraycreation.getDimension(0) = b.getExpr()
-      or
-      exists(int arrlen |
-        arraycreation.getFirstDimensionSize() = arrlen and
-        b instanceof ZeroBound and
-        k = delta - arrlen
-      )
-    )
+    boundedArrayLen(aa.getArray(), b, delta - k, false, _)
   )
 }
+//predicate boundedArrayAccess(ArrayAccess aa, int k) {
+//  exists(SsaVariable arr, Expr index, Bound b, int delta |
+//    aa.getIndexExpr() = index and
+//    aa.getArray() = arr.getAUse() and
+//    bounded(index, b, delta, true, _)
+//  |
+//    exists(FieldAccess len |
+//      len.getField() instanceof ArrayLengthField and
+//      len.getQualifier() = arr.getAUse() and
+//      b.getExpr() = len and
+//      k = delta
+//    )
+//    or
+//    exists(ArrayCreationExpr arraycreation | arraycreation = getArrayDef(arr) |
+//      k = delta and
+//      arraycreation.getDimension(0) = b.getExpr()
+//      or
+//      exists(int arrlen |
+//        arraycreation.getFirstDimensionSize() = arrlen and
+//        b instanceof ZeroBound and
+//        k = delta - arrlen
+//      )
+//    )
+//  )
+//}
 
 /**
  * Holds if the index expression is less than or equal to the array length plus `k`,

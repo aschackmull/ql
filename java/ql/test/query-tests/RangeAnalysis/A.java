@@ -175,4 +175,25 @@ public class A {
       }
     }
   }
+
+  void m14(int[] a) {
+    int sum = 0;
+    for (int i = 0; i < a.length; i++) {
+      int x = ++i;
+      int y = ++i;
+      if (y < a.length) {
+        sum += a[x]; // OK
+        sum += a[y]; // OK
+      }
+    }
+  }
+
+  void m15(int[] a) {
+    int sum = 0;
+    for (int i = 0; i < a.length + 1; i++) {
+      if (i == 0 && a.length > 0) {
+        sum += a[i]; // OK
+      }
+    }
+  }
 }
