@@ -53,7 +53,7 @@ private module Dispatch {
   Method viableImpl_v3(MethodAccess ma) { result = DispatchFlow::viableImpl_out(ma) }
 
   private predicate qualType(VirtualMethodAccess ma, RefType t, boolean exact) {
-    exprTypeFlow(ma.getQualifier(), t, exact)
+    exprTypeFlow2(ma.getQualifier(), t, exact)
   }
 
   /**

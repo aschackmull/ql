@@ -384,6 +384,133 @@ private predicate bestTypeFlow(TypeFlowNode n, RefType t) {
   not irrelevantBound(n, t.getErasure())
 }
 
+private predicate instanceofDisjunct(InstanceOfExpr ioe, BasicBlock bb, BaseSsaVariable v) {
+  ioe.getExpr() = v.getAUse() and
+  strictcount(bb.getABBPredecessor()) > 1 and
+  exists(ConditionBlock cb | cb.getCondition() = ioe and cb.getTestSuccessor(true) = bb)
+}
+
+private predicate instanceofDisjunction(BasicBlock bb, BaseSsaVariable v) {
+  strictcount(InstanceOfExpr ioe | instanceofDisjunct(ioe, bb, v)) = strictcount(bb.getABBPredecessor())
+}
+
+/**
+ * Holds if `va` is an access to a value that is guarded by a disjunction of
+ * `instanceof t_i` where `t` is one of those `t_i`.
+ */
+private predicate instanceofDisjunctionGuarded(VarAccess va, RefType t) {
+  exists(BasicBlock bb, InstanceOfExpr ioe, BaseSsaVariable v |
+    instanceofDisjunction(bb, v) and
+    bb.bbDominates(va.getBasicBlock()) and
+    va = v.getAUse() and
+    instanceofDisjunct(ioe, bb, v) and
+    t = ioe.getTypeName().getType()
+  )
+}
+
+private predicate allStep(TypeFlowNode n1, TypeFlowNode n2) { step(n1, n2) or joinStep(n1, n2) }
+
+private predicate disjunctiveTypeFlowBase(TypeFlowNode n, RefType t, boolean exact) {
+  exactTypeBase(n, t) and exact = true
+  or
+  typeFlowBase(n, t) and exact = false
+  or
+  instanceofDisjunctionGuarded(n.asExpr(), t) and exact = false
+}
+
+/*
+ * The set of nodes for which we can calculate a type bound as a disjunctive
+ * set is given by `disjunctiveTypeFlowCand(n)`
+ * ```
+ * predicate disjunctiveTypeFlowCand(TypeFlowNode n)
+ *   disjunctiveTypeFlowBase(n, _, _)
+ *   or
+ *   forex(TypeFlowNode mid | allStep(mid, n) | disjunctiveTypeFlowCand(mid))
+ * }
+ * ```
+ * except we want the recursion through the `forex` to yield the greatest fixpoint
+ * instead the smallest, so we calculate it via its negation `staticType(n)`.
+ */
+
+/**
+ * Holds if `n` is a node for which the static type is the best type bound we
+ * can infer.
+ */
+predicate staticType(TypeFlowNode n) {
+  not disjunctiveTypeFlowBase(n, _, _) and
+  (
+    not allStep(_, n) and
+    allStep(n, _) and
+    not isNull(n)
+    or
+    exists(TypeFlowNode mid | allStep(mid, n) | staticType(mid))
+  )
+}
+
+/**
+ * Holds if `n` is a node for which we might calculate a disjunctive set of
+ * types as a better bound than the static type.
+ */
+predicate disjunctiveTypeFlowCand(TypeFlowNode n) {
+  disjunctiveTypeFlowBase(n, _, _)
+  or
+  allStep(_, n) and
+  not staticType(n)
+}
+
+/**
+ * Holds if `n` is a candidate for a disjunctive type bound and the type bound
+ * `(t, exact)` reaches `n`.
+ */
+predicate disjunctiveTypeFlow0(TypeFlowNode n, RefType t, boolean exact) {
+  disjunctiveTypeFlowBase(n, t, exact)
+  or
+  exists(TypeFlowNode mid |
+    disjunctiveTypeFlow0(mid, t, exact) and
+    allStep(mid, n) and
+    disjunctiveTypeFlowCand(n) and
+    // This `forall` is the same as
+    // `not n.getType().getErasure().(RefType).getASourceSupertype+() = t.getErasure()`
+    forall(RefType sup | sup = n.getType().getErasure().(RefType).getASourceSupertype+() | sup != t.getErasure())
+  )
+}
+
+/**
+ * Holds if the set of type bounds for `n` calculated by `disjunctiveTypeFlow`
+ * is incomplete and thus has to be disregarded and replaced by the static type.
+ */
+predicate incompleteDisjunctiveType(TypeFlowNode n) {
+  disjunctiveTypeFlowCand(n) and
+  not disjunctiveTypeFlow0(n, _, _) and
+  not isNull(n)
+  or
+  exists(TypeFlowNode mid |
+    incompleteDisjunctiveType(mid) and allStep(mid, n) and not disjunctiveTypeFlowBase(n, _, _)
+  )
+}
+
+/**
+ * Holds if the runtime type of `n` is bounded by a set of types, the
+ * disjunction of which is likely better than the static type, and `t` is one
+ * of those bounds.
+ */
+predicate disjunctiveTypeFlow(TypeFlowNode n, RefType t, boolean exact) {
+  disjunctiveTypeFlow0(n, t, exact) and not incompleteDisjunctiveType(n)
+}
+
+predicate exprTypeFlow2(Expr e, RefType t, boolean exact) {
+    exists(TypeFlowNode n |
+      n.asExpr() = e and
+      (
+        exactType(n, t) and exact = true
+        or
+        not exactType(n, _) and bestTypeFlow(n, t) and exact = false
+        or
+        not exactType(n, _) and not bestTypeFlow(n, _) and disjunctiveTypeFlow(n, t, exact)
+      )
+    )
+  }
+
 cached
 private module TypeFlowBounds {
   /**
