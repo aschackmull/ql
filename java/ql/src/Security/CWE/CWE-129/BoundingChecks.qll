@@ -5,6 +5,9 @@
 
 import java
 private import semmle.code.java.controlflow.Guards
+import semmle.code.java.dataflow.RangeAnalysis
+import semmle.code.java.dataflow.SSA
+import semmle.code.java.dataflow.RangeUtils
 
 /**
  * Holds if the given `ComparisonExpr` is thought to be true when `VarAccess` is accessed.
@@ -36,6 +39,14 @@ int lowerBound(VarAccess va) {
   )
 }
 
+int lb(VarAccess va) {
+  bounded(va, any(ZeroBound zb), result, false, _)
+}
+
+predicate df(int b, VarAccess va) {
+  b = lowerBound(va) and not b = lb(va)
+}
+
 /**
  * Holds if the index expression is a `VarAccess`, where the variable has been confirmed to be less
  * than the length.
@@ -50,6 +61,40 @@ predicate lessthanLength(ArrayAccess a) {
     lessThanLength.getLesserOperand() = va.getVariable().getAnAccess() and
     lessThanLength.isStrict()
   )
+}
+
+predicate boundedArrayAccess(ArrayAccess aa, int k) {
+  exists(SsaVariable arr, Expr index, Bound b, int delta |
+    aa.getIndexExpr() = index and
+    aa.getArray() = arr.getAUse() and
+    bounded(index, b, delta, true, _)
+  |
+    exists(FieldAccess len |
+      len.getField() instanceof ArrayLengthField and
+      len.getQualifier() = arr.getAUse() and
+      b.getExpr() = len and
+      k = delta
+    )
+    or
+    exists(ArrayCreationExpr arraycreation | arraycreation = getArrayDef(arr) |
+      k = delta and
+      arraycreation.getDimension(0) = b.getExpr()
+      or
+      exists(int arrlen |
+        arraycreation.getFirstDimensionSize() = arrlen and
+        b instanceof ZeroBound and
+        k = delta - arrlen
+      )
+    )
+  )
+}
+
+predicate ok(ArrayAccess aa) {
+  exists(int k | k < 0 and boundedArrayAccess(aa, k))
+}
+
+predicate df2(ArrayAccess aa) {
+  lessthanLength(aa) and not ok(aa)
 }
 
 /**

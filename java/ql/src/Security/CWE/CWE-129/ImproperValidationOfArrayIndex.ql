@@ -26,10 +26,26 @@ class Conf extends TaintTracking::Configuration {
   override predicate isSanitizer(DataFlow::Node node) { node.getType() instanceof BooleanType }
 }
 
+//import DataFlow
+//
+//predicate q(PathNode source, PathNode sink) {
+//  any(Conf conf).hasFlowPath(source, sink)
+//}
+//
+//from int total, int slice, int mod
+//where total = strictcount(PathNode source, PathNode sink | q(source, sink))
+//and
+//slice = strictcount(PathNode source, PathNode sink | q(source, sink) and
+//  (source.getLocation().getStartLine() + sink.getLocation().getStartLine()) % 100 = mod
+//)
+//select total, mod, slice
+
+
 from DataFlow::PathNode source, DataFlow::PathNode sink, CheckableArrayAccess arrayAccess
 where
   arrayAccess.canThrowOutOfBounds(sink.getNode().asExpr()) and
   any(Conf conf).hasFlowPath(source, sink)
+  and (source.getLocation().getStartLine() + sink.getLocation().getStartLine()) % 100 = 26
 select arrayAccess.getIndexExpr(), source, sink,
   "$@ flows to here and is used as an index causing an ArrayIndexOutOfBoundsException.",
   source.getNode(), "User-provided value"
