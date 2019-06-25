@@ -4,6 +4,7 @@ private import DispatchFlow as DispatchFlow
 private import ObjFlow as ObjFlow
 private import semmle.code.java.dataflow.internal.BaseSSA
 private import semmle.code.java.controlflow.Guards
+import semmle.code.java.dataflow.TypeFlow_q2
 
 /**
  * A conservative analysis that returns a single method - if we can establish
@@ -38,11 +39,24 @@ class CalledMethod extends Method {
   CalledMethod() { exists(MethodAccess ma | ma.getMethod() = this) }
 }
 
-cached
+//cached
 private module Dispatch {
   /** Gets a viable implementation of the method called in the given method access. */
   cached
-  Method viableImpl(MethodAccess ma) { result = ObjFlow::viableImpl_out(ma) }
+  //Method viableImpl(MethodAccess ma) { result = ObjFlow::viableImpl_out(ma) }
+  Method viableImpl(MethodAccess ma) { result = viableImpl_v3(ma) }
+
+  ///**
+  // * INTERNAL: Use `viableImpl` instead.
+  // *
+  // * Gets a viable implementation of the method called in the given method access.
+  // */
+  //cached
+  //Method viableImpl_v3(MethodAccess ma) { result = DispatchFlow::viableImpl_out(ma) }
+
+  private predicate qualType_q2(VirtualMethodAccess ma, RefType t, boolean exact) {
+    exprTypeFlow2_q2(ma.getQualifier(), t, exact)
+  }
 
   /**
    * INTERNAL: Use `viableImpl` instead.
@@ -50,9 +64,92 @@ private module Dispatch {
    * Gets a viable implementation of the method called in the given method access.
    */
   cached
-  Method viableImpl_v3(MethodAccess ma) { result = DispatchFlow::viableImpl_out(ma) }
+  Method viableImpl_v3(MethodAccess ma) {
+    result = viableImpl_v2(ma) and
+    (
+      exists(Method def, RefType t, boolean exact |
+        qualType_q2(ma, t, exact) and
+        def = ma.getMethod()
+      |
+        exact = true and result = exactMethodImpl(def, t.getSourceDeclaration())
+        or
+        exact = false and
+        exists(RefType t2 |
+          result = viableMethodImpl(def, t.getSourceDeclaration(), t2) and
+          not Unification_v2::failsUnification(t, t2)
+        )
+      )
+      or
+      not qualType_q2(ma, _, _)
+    )
+  }
 
+  private module Unification_v3 {
+    pragma[noinline]
+    private predicate unificationTargetLeft(ParameterizedType t1, GenericType g) {
+      qualType_q2(_, t1, _) and t1.getGenericType() = g
+    }
+
+    pragma[noinline]
+    private predicate unificationTargetRight(ParameterizedType t2, GenericType g) {
+      exists(viableMethodImpl(_, _, t2)) and t2.getGenericType() = g
+    }
+
+    private predicate unificationTargets(Type t1, Type t2) {
+      exists(GenericType g | unificationTargetLeft(t1, g) and unificationTargetRight(t2, g))
+      or
+      exists(Array a1, Array a2 |
+        unificationTargets(a1, a2) and
+        t1 = a1.getComponentType() and
+        t2 = a2.getComponentType()
+      )
+      or
+      exists(ParameterizedType pt1, ParameterizedType pt2, int pos |
+        unificationTargets(pt1, pt2) and
+        not pt1.getSourceDeclaration() != pt2.getSourceDeclaration() and
+        t1 = pt1.getTypeArgument(pos) and
+        t2 = pt2.getTypeArgument(pos)
+      )
+    }
+
+    pragma[noinline]
+    private predicate typeArgsOfUnificationTargets(
+      ParameterizedType t1, ParameterizedType t2, int pos, RefType arg1, RefType arg2
+    ) {
+      unificationTargets(t1, t2) and
+      arg1 = t1.getTypeArgument(pos) and
+      arg2 = t2.getTypeArgument(pos)
+    }
+
+    predicate failsUnification(Type t1, Type t2) {
+      unificationTargets(t1, t2) and
+      (
+        exists(RefType arg1, RefType arg2 |
+          typeArgsOfUnificationTargets(t1, t2, _, arg1, arg2) and
+          failsUnification(arg1, arg2)
+        )
+        or
+        failsUnification(t1.(Array).getComponentType(), t2.(Array).getComponentType())
+        or
+        not (
+          t1 instanceof Array and t2 instanceof Array
+          or
+          t1.(PrimitiveType) = t2.(PrimitiveType)
+          or
+          t1.(Class).getSourceDeclaration() = t2.(Class).getSourceDeclaration()
+          or
+          t1.(Interface).getSourceDeclaration() = t2.(Interface).getSourceDeclaration()
+          or
+          t1 instanceof BoundedType and t2 instanceof RefType
+          or
+          t1 instanceof RefType and t2 instanceof BoundedType
+        )
+      )
+    }
+  }
+  
   private predicate qualType(VirtualMethodAccess ma, RefType t, boolean exact) {
+//    exprTypeFlow(ma.getQualifier(), t, exact)
     exprTypeFlow2(ma.getQualifier(), t, exact)
   }
 
@@ -349,7 +446,8 @@ private Expr variableTrackPath(Expr use) {
  * Gets an expression by tracking `use` backwards through variable assignments.
  */
 Expr variableTrack(Expr use) {
-  result = variableTrackPath(use)
-  or
-  not exists(variableTrackPath(use)) and result = use
+//  result = variableTrackPath(use)
+//  or
+//  not exists(variableTrackPath(use)) and
+  result = use
 }

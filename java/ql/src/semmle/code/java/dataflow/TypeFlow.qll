@@ -207,39 +207,73 @@ private predicate exactType(TypeFlowNode n, RefType t) {
 
 /**
  * Holds if `n` occurs in a position where type information might be discarded;
- * `t` is the potentially boxed type of `n`, `t1` is the erasure of `t`, and
- * `t2` is the erased type of the implicit or explicit cast.
+ * `t1` is the potentially boxed type of `n`, `t1e` is the erasure of `t1`,
+ * `t2` is the type of the implicit or explicit cast, and `t2e` is the erasure
+ * of `t2`.
  */
 pragma[noinline]
-private predicate upcastCand(TypeFlowNode n, RefType t, RefType t1, RefType t2) {
-  t = boxIfNeeded(n.getType()) and
-  t.getErasure() = t1 and
+private predicate upcastCand(TypeFlowNode n, RefType t1, RefType t1e, RefType t2, RefType t2e) {
+  t1 = boxIfNeeded(n.getType()) and
+  t1.getErasure() = t1e and
+  t2.getErasure() = t2e and
   (
-    exists(Variable v | v.getAnAssignedValue() = n.asExpr() and t2 = v.getType().getErasure())
+    exists(Variable v | v.getAnAssignedValue() = n.asExpr() and t2 = v.getType())
     or
-    exists(CastExpr c | c.getExpr() = n.asExpr() and t2 = c.getType().getErasure())
+    exists(CastExpr c | c.getExpr() = n.asExpr() and t2 = c.getType())
     or
     exists(ReturnStmt ret |
-      ret.getResult() = n.asExpr() and t2 = ret.getEnclosingCallable().getReturnType().getErasure()
+      ret.getResult() = n.asExpr() and t2 = ret.getEnclosingCallable().getReturnType()
     )
     or
     exists(MethodAccess ma | viableImpl_v1(ma) = n.asMethod() and t2 = ma.getType())
     or
-    exists(Parameter p | privateParamArg(p, n.asExpr()) and t2 = p.getType().getErasure())
+    exists(Parameter p | privateParamArg(p, n.asExpr()) and t2 = p.getType())
     or
     exists(ConditionalExpr cond |
       cond.getTrueExpr() = n.asExpr() or cond.getFalseExpr() = n.asExpr()
     |
-      t2 = cond.getType().getErasure()
+      t2 = cond.getType()
     )
+  )
+}
+
+private predicate unconstrained(Wildcard wc) {
+  wc.isUnconstrained() or wc.getUpperBound().getType() instanceof TypeObject
+}
+
+private predicate unconstrainedParamTyp(ParameterizedType pt) {
+  forall(RefType arg | arg = pt.getATypeArgument() | unconstrained(arg))
+}
+
+private predicate equivTypes(RefType t1, RefType t2) {
+  t1.getASupertype() = t2 and
+  t2.getASupertype*() = t1
+  or
+  exists(ParameterizedType pt | unconstrainedParamTyp(pt) |
+    t1 = pt and t2 = pt.getErasure().(GenericType).getRawType()
+    or
+    t2 = pt and t1 = pt.getErasure().(GenericType).getRawType()
   )
 }
 
 /** Holds if `n` occurs in a position where type information is discarded. */
 private predicate upcast(TypeFlowNode n, RefType t) {
-  exists(RefType t1, RefType t2 |
-    upcastCand(n, t, t1, t2) and
-    t1.getASourceSupertype+() = t2
+  exists(RefType t1e, RefType t2, RefType t2e |
+    upcastCand(n, t, t1e, t2, t2e)
+    |
+    t1e.getASourceSupertype+() = t2e
+    or
+    t.getASupertype+() = t2 and
+    not equivTypes*(t, t2)
+    or
+    exists(GenericType g, ParameterizedType pt1, ParameterizedType pt2 |
+      pt1 = t and
+      pt2 = t2 and
+      pt1.getGenericType() = g and
+      pt2.getGenericType() = g and
+      forall(RefType arg | pt2.getATypeArgument() = arg | arg instanceof BoundedType) and
+      not pt1.getATypeArgument() instanceof BoundedType
+    )
   )
 }
 
@@ -322,10 +356,13 @@ private predicate typeFlowBase(TypeFlowNode n, RefType t) {
     n.asExpr().(FunctionalExpr).getConstructedType() = srctype
   |
     t = srctype.(BoundedType).getAnUltimateUpperBoundType()
+    //and not t instanceof TypeObject
     or
     t = srctype and not srctype instanceof BoundedType
   )
 }
+
+predicate upcObj(TypeFlowNode n) { typeFlowBase(n, any(TypeObject o)) }
 
 /**
  * Holds if `t` is a bound that holds on one of the incoming edges to `n` and
@@ -391,7 +428,9 @@ private predicate instanceofDisjunct(InstanceOfExpr ioe, BasicBlock bb, BaseSsaV
 }
 
 private predicate instanceofDisjunction(BasicBlock bb, BaseSsaVariable v) {
-  strictcount(InstanceOfExpr ioe | instanceofDisjunct(ioe, bb, v)) = strictcount(bb.getABBPredecessor())
+  strictcount(InstanceOfExpr ioe | instanceofDisjunct(ioe, bb, v)) = strictcount(bb
+            .getABBPredecessor()
+    )
 }
 
 /**
@@ -408,12 +447,14 @@ private predicate instanceofDisjunctionGuarded(VarAccess va, RefType t) {
   )
 }
 
-private predicate allStep(TypeFlowNode n1, TypeFlowNode n2) { step(n1, n2) or joinStep(n1, n2) }
+private predicate allStep(TypeFlowNode n1, TypeFlowNode n2) { step(n1, n2) and not isNull(n1) or joinStep(n1, n2) }
 
 private predicate disjunctiveTypeFlowBase(TypeFlowNode n, RefType t, boolean exact) {
   exactTypeBase(n, t) and exact = true
   or
-  typeFlowBase(n, t) and exact = false
+  typeFlowBase(n, t) and exact = false and not exactTypeBase(n, _) and
+  not irrelevantBound(n, t.getErasure())
+  and not t instanceof TypeObject
   or
   instanceofDisjunctionGuarded(n.asExpr(), t) and exact = false
 }
@@ -436,50 +477,137 @@ private predicate disjunctiveTypeFlowBase(TypeFlowNode n, RefType t, boolean exa
  * Holds if `n` is a node for which the static type is the best type bound we
  * can infer.
  */
-predicate staticType(TypeFlowNode n) {
+private predicate staticType(TypeFlowNode n) {
   not disjunctiveTypeFlowBase(n, _, _) and
   (
     not allStep(_, n) and
-    allStep(n, _) and
-    not isNull(n)
+    allStep(n, _)
+//    and
+//    not isNull(n)
     or
     exists(TypeFlowNode mid | allStep(mid, n) | staticType(mid))
   )
 }
 
+predicate step2(TypeFlowNode n1, TypeFlowNode n2) {
+  allStep(n1, n2) and not staticType(n2)
+}
+
+predicate hasTypeFlow1(TypeFlowNode n) {
+  exists(TypeFlowNode orig | disjunctiveTypeFlowBase(orig, _, _) and step2*(orig, n))
+}
+
+predicate static2(TypeFlowNode n) {
+  step2(_, n) and not hasTypeFlow1(n)// and not isNull(n)
+  or
+  exists(TypeFlowNode mid |
+    static2(mid) and step2(mid, n) and not disjunctiveTypeFlowBase(n, _, _)
+  )
+}
+
+predicate step3(TypeFlowNode n1, TypeFlowNode n2) {
+  step2(n1, n2) and not static2(n2)
+}
+
+predicate qq(int i1, int i2) {
+  i1 = count(TypeFlowNode n | hasTypeFlow1(n) and not static2(n)) and
+  i2 = count(TypeFlowNode n | step3(_, n) or disjunctiveTypeFlowBase(n, _, _))
+}
+
+predicate hasTypeFlow2(TypeFlowNode n) { hasTypeFlow1(n) and not static2(n) }
+
+//predicate hasTypeFlow2(TypeFlowNode n, RefType t, boolean exact) {
+//  exists(TypeFlowNode orig | disjunctiveTypeFlowBase(orig, t, exact) and step3*(orig, n))
+//}
+
+predicate midbound(TypeFlowNode n, RefType t, boolean exact) {
+  disjunctiveTypeFlowBase(n, t, exact) and
+  forex(TypeFlowNode prev | step3(prev, n) | hasTypeFlow2(prev))
+}
+
+predicate bound(TypeFlowNode n, RefType t, boolean exact) {
+  disjunctiveTypeFlowBase(n, t, exact) and
+  not forex(TypeFlowNode prev | step3(prev, n) | hasTypeFlow2(prev))
+  // plus SCC
+  or
+  exists(TypeFlowNode mid |
+    none()
+    // step
+    // if base :
+    //   keep best bound -> default keep recursive bound
+    // otherwise keep rec bound
+  )
+}
+
+//predicate midboundGood(TypeFlowNode n, RefType t, boolean exact) {
+//  midbound(n, t, exact) and
+//  exists(
+//}
+
 /**
  * Holds if `n` is a node for which we might calculate a disjunctive set of
  * types as a better bound than the static type.
  */
-predicate disjunctiveTypeFlowCand(TypeFlowNode n) {
+private predicate disjunctiveTypeFlowCand(TypeFlowNode n) {
   disjunctiveTypeFlowBase(n, _, _)
   or
   allStep(_, n) and
   not staticType(n)
 }
 
-/**
- * Holds if `n` is a candidate for a disjunctive type bound and the type bound
- * `(t, exact)` reaches `n`.
- */
-predicate disjunctiveTypeFlow0(TypeFlowNode n, RefType t, boolean exact) {
-  disjunctiveTypeFlowBase(n, t, exact)
+private predicate disjunctiveTypeFlowOrigin(TypeFlowNode n) {
+  disjunctiveTypeFlowBase(n, _, _) and
+  not forex(TypeFlowNode prev | allStep(prev, n) | disjunctiveTypeFlowCand(prev))
+}
+
+private predicate disjunctiveTypeFlow0(TypeFlowNode n, RefType t, boolean exact) {
+  disjunctiveTypeFlowBase(n, t, exact) and
+  disjunctiveTypeFlowOrigin(n)
   or
   exists(TypeFlowNode mid |
     disjunctiveTypeFlow0(mid, t, exact) and
     allStep(mid, n) and
-    disjunctiveTypeFlowCand(n) and
-    // This `forall` is the same as
-    // `not n.getType().getErasure().(RefType).getASourceSupertype+() = t.getErasure()`
-    forall(RefType sup | sup = n.getType().getErasure().(RefType).getASourceSupertype+() | sup != t.getErasure())
+    not disjunctiveTypeFlowOrigin(n) and
+    disjunctiveTypeFlowCand(n)
   )
 }
+
+predicate qqq(TypeFlowNode n, RefType t, boolean exact, int dis, RefType tt, boolean ee) {
+  //disjunctiveTypeFlow0(n, _, _) and
+  dis = strictcount(RefType t0, boolean e0 | disjunctiveTypeFlow0(n, t0, e0)) and
+  disjunctiveTypeFlowBase(n, t, exact) and
+  not disjunctiveTypeFlowOrigin(n) and
+  disjunctiveTypeFlow0(n, tt, ee) and
+  not (dis = 1 and t = tt and exact =false) and
+  not (dis=1 and tt.extendsOrImplements(t)) and
+  not forall(RefType tt0 | disjunctiveTypeFlow0(n, tt0, _) | tt0.extendsOrImplements+(t) or t = tt0 and exact =false)
+}
+
+///**
+// * Holds if `n` is a candidate for a disjunctive type bound and the type bound
+// * `(t, exact)` reaches `n`.
+// */
+//private predicate disjunctiveTypeFlow0(TypeFlowNode n, RefType t, boolean exact) {
+//  disjunctiveTypeFlowBase(n, t, exact)
+//  or
+//  exists(TypeFlowNode mid |
+//    disjunctiveTypeFlow0(mid, t, exact) and
+//    allStep(mid, n) and
+//    disjunctiveTypeFlowCand(n) and
+//    // This `forall` is the same as
+//    // `not n.getType().getErasure().(RefType).getASourceSupertype+() = t.getErasure()`
+//    forall(RefType sup | sup = n.getType().getErasure().(RefType).getASourceSupertype+() |
+//      sup != t.getErasure()
+//    )
+//    // ^^ WRONG: might remove the representation of a join-branch
+//  )
+//}
 
 /**
  * Holds if the set of type bounds for `n` calculated by `disjunctiveTypeFlow`
  * is incomplete and thus has to be disregarded and replaced by the static type.
  */
-predicate incompleteDisjunctiveType(TypeFlowNode n) {
+private predicate incompleteDisjunctiveType(TypeFlowNode n) {
   disjunctiveTypeFlowCand(n) and
   not disjunctiveTypeFlow0(n, _, _) and
   not isNull(n)
@@ -494,22 +622,56 @@ predicate incompleteDisjunctiveType(TypeFlowNode n) {
  * disjunction of which is likely better than the static type, and `t` is one
  * of those bounds.
  */
-predicate disjunctiveTypeFlow(TypeFlowNode n, RefType t, boolean exact) {
+private predicate disjunctiveTypeFlow(TypeFlowNode n, RefType t, boolean exact) {
   disjunctiveTypeFlow0(n, t, exact) and not incompleteDisjunctiveType(n)
 }
 
+//predicate d1(TypeFlowNode n, RefType t, boolean exact) {
+//  M1::disjunctiveTypeFlow(n, t, exact) and not M2::disjunctiveTypeFlow(n, t, exact) and not t instanceof TypeObject
+//}
+//predicate d2(TypeFlowNode n, RefType t, boolean exact) {
+//  M2::disjunctiveTypeFlow(n, t, exact) and not M1::disjunctiveTypeFlow(n, t, exact)
+//}
+
+predicate hasSingleBound(TypeFlowNode n) {
+  exists(RefType t | bestTypeFlow(n, t) and disjunctiveTypeFlow(n, t, false))
+}
+
+predicate bestObj(TypeFlowNode n) { bestTypeFlow(n, any(TypeObject oo)) }
+
 predicate exprTypeFlow2(Expr e, RefType t, boolean exact) {
-    exists(TypeFlowNode n |
-      n.asExpr() = e and
-      (
-        exactType(n, t) and exact = true
-        or
-        not exactType(n, _) and bestTypeFlow(n, t) and exact = false
-        or
-        not exactType(n, _) and not bestTypeFlow(n, _) and disjunctiveTypeFlow(n, t, exact)
+  exists(TypeFlowNode n |
+    n.asExpr() = e and
+    (
+      exactType(n, t) and exact = true
+      or
+//      not exactType(n, _) and bestTypeFlow(n, t) and exact = false
+//      or
+//      not exactType(n, _) and not bestTypeFlow(n, _) and disjunctiveTypeFlow(n, t, exact)
+      not exactType(n, _) and
+      if hasSingleBound(n) then
+        bestTypeFlow(n, t) and exact = false
+      else (
+        disjunctiveTypeFlow(n, t, exact)
       )
     )
-  }
+  )
+}
+
+//predicate qqq(TypeFlowNode n, RefType t, int d, RefType td, boolean ex) {
+//  bestTypeFlow(n, t) and
+//  not hasSingleBound(n) and
+////  not exists(RefType t0, boolean e0 | disjunctiveTypeFlow(n, t0, e0)) and td = t and ex = false
+////  and
+//  d = count(RefType t0, boolean e0 | disjunctiveTypeFlow(n, t0, e0)) and
+//  (
+//    not exists(RefType t0, boolean e0 | disjunctiveTypeFlow(n, t0, e0)) and td = t and ex = false
+//    or
+//    disjunctiveTypeFlow(n, td, ex)
+//  ) and
+//  not (d=1 and t = td and ex =false)
+//  and not exactType(n, _)
+//}
 
 cached
 private module TypeFlowBounds {
