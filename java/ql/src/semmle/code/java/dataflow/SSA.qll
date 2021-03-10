@@ -400,6 +400,54 @@ private module SsaImpl {
     )
   }
 
+  private predicate q1(MethodAccess ma) {
+    exists(Callable c1, RefType t1 |
+      ma.getCaller() = c1 and
+      not ma.getMethod().isStatic() and
+      (
+        not exists(ma.getQualifier()) or
+        ma.getQualifier() instanceof ThisAccess or
+        ma.getQualifier() instanceof SuperAccess
+      ) and
+      c1.getDeclaringType() = t1 and
+      if t1 instanceof InnerClass
+      then
+        innerclassSupertypeStar(t1, ma.getCallee().getSourceDeclaration().getDeclaringType()) and
+        not exists(ma.getQualifier().(ThisAccess).getQualifier()) and
+        not exists(ma.getQualifier().(SuperAccess).getQualifier())
+      else any()
+      )
+  }
+
+  private predicate q2(MethodAccess ma) {
+    exists(Callable c1, RefType t1 |
+      ma.getCaller() = c1 and
+      not ma.getMethod().isStatic() and
+      ma.isOwnMethodAccess() and
+      c1.getDeclaringType() = t1 and
+      if t1 instanceof InnerClass
+      then
+        innerclassSupertypeStar(t1, ma.getCallee().getSourceDeclaration().getDeclaringType()) and
+        not exists(ma.getQualifier().(ThisAccess).getQualifier()) and
+        not exists(ma.getQualifier().(SuperAccess).getQualifier())
+      else any()
+      )
+  }
+
+  private predicate diff(MethodAccess ma){//, RefType t) {
+    q1(ma) and not q2(ma) and
+    not ma.isEnclosingMethodAccess(_)
+    and not ma.isOwnMethodAccess()
+  }
+
+  private predicate q1c(int c1, int c2, int c1not2, int c2not1) {
+    c1 = count(MethodAccess ma | q1(ma)) and
+    c2 = count(MethodAccess ma | q2(ma)) and
+    c1not2 = count(MethodAccess ma | q1(ma) and not q2(ma))
+    and
+    c2not1 = count(MethodAccess ma | q2(ma) and not q1(ma))
+  }
+
   private Callable tgt(Call c) {
     result = viableImpl(c)
     or
