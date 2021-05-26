@@ -6,7 +6,6 @@ import java
 private import semmle.code.java.dataflow.SSA
 import semmle.code.java.dataflow.NullGuards
 import semmle.code.java.controlflow.ControlFlow
-private import semmle.code.java.controlflow.ControlFlowSpecific
 import ControlFlow::PathGraph
 
 /** Helpers copied from semmle.code.java.dataflow.Nullness */
@@ -95,24 +94,26 @@ class NullnessConfiguration extends ControlFlow::Configuration {
   override predicate isSource(ControlFlow::Node src, ControlFlow::Label l) {
     exists(SsaVariable v |
       src = v.getCFGNode() and
-      l.(LabelVar).getVar() = v.getSourceVariable().getVariable() and
+      l.(ControlFlow::LabelVar).getVar() = v.getSourceVariable().getVariable() and
       varMaybeNull(v, _, _)
     )
   }
 
   override predicate isSink(ControlFlow::Node sink, ControlFlow::Label l) {
     dereference(sink) and
-    sink.(VarAccess).getVariable() = l.(LabelVar).getVar()
+    sink.(VarAccess).getVariable() = l.(ControlFlow::LabelVar).getVar()
   }
 
   override predicate isBarrierEdge(ControlFlow::Node n1, ControlFlow::Node n2, ControlFlow::Label l) {
-    exists(SsaVariable v | v.getSourceVariable().getVariable() = l.(LabelVar).getVar() |
+    exists(SsaVariable v |
+      v.getSourceVariable().getVariable() = l.(ControlFlow::LabelVar).getVar()
+    |
       n1 = ensureNotNull(v) and
       n2 = n1.getASuccessor()
     )
     or
     exists(SsaVariable v, BasicBlock b1, BasicBlock b2, boolean branch |
-      v.getSourceVariable().getVariable() = l.(LabelVar).getVar() and
+      v.getSourceVariable().getVariable() = l.(ControlFlow::LabelVar).getVar() and
       n1 = b1.getLastNode() and
       n2 = b2.getFirstNode() and
       nullGuard(v, branch, false).hasBranchEdge(b1, b2, branch)
@@ -120,7 +121,7 @@ class NullnessConfiguration extends ControlFlow::Configuration {
   }
 
   override predicate isBarrier(ControlFlow::Node n, ControlFlow::Label l) {
-    n.(Assignment).getDest().(VarAccess).getVariable() = l.(LabelVar).getVar()
+    n.(Assignment).getDest().(VarAccess).getVariable() = l.(ControlFlow::LabelVar).getVar()
   }
 }
 

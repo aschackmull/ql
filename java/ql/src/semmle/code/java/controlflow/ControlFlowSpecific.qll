@@ -16,20 +16,20 @@ module Public {
   abstract class Label extends TLabel {
     abstract string toString();
   }
+
+  class LabelUnit extends Label, TLabelUnit {
+    override string toString() { result = "labelunit" }
+  }
+
+  class LabelVar extends Label, TLabelVar {
+    Variable var;
+
+    LabelVar() { this = TLabelVar(var) }
+
+    Variable getVar() { result = var }
+
+    override string toString() { result = var.toString() }
+  }
 }
 
 private import Public
-
-class LabelUnit extends Label, TLabelUnit {
-  override string toString() { result = "labelunit" }
-}
-
-class LabelVar extends Label, TLabelVar {
-  Variable var;
-
-  LabelVar() { this = TLabelVar(var) }
-
-  Variable getVar() { result = var }
-
-  override string toString() { result = var.toString() }
-}
