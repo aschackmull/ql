@@ -77,6 +77,8 @@ module ControlFlow {
     predicate isBarrierEdge(Node n1, Node n2, Label l) { none() }
 
     predicate isBarrier(Node n, Label l) { none() }
+
+    final predicate hasFlow(PathNode src, PathNode sink) { hasFlow(src, sink, this) }
   }
 
   private predicate srcBlock(BasicBlock b, int i, Node src, Label l, Configuration conf) {
@@ -118,6 +120,8 @@ module ControlFlow {
   class PathNode extends TPathNode {
     abstract Node getNode();
 
+    abstract Configuration getConfiguration();
+
     abstract PathNode getASuccessor();
 
     string toString() { result = this.getNode().toString() }
@@ -145,7 +149,22 @@ module ControlFlow {
 
     override Node getNode() { result = src }
 
-    override PathNode getASuccessor() { none() }
+    override Configuration getConfiguration() { result = conf }
+
+    override PathNode getASuccessor() {
+      exists(BasicBlock b | b.getANode() = src | result = TPathNodeMid(b.getASuccessor(), l, conf))
+      or
+      exists(BasicBlock b | b.getANode() = src |
+        result = TPathNodeSink(b.getASuccessor().getANode(), l, conf)
+      )
+      or
+      exists(BasicBlock b, Node sink, int i, int j |
+        srcBlock(b, i, src, l, conf) and
+        sinkBlock(b, j, sink, l, conf) and
+        i <= j and
+        result = TPathNodeSink(sink, l, conf)
+      )
+    }
   }
 
   class PathNodeSink extends PathNode, TPathNodeSink {
@@ -156,6 +175,8 @@ module ControlFlow {
     PathNodeSink() { this = TPathNodeSink(sink, l, conf) }
 
     override Node getNode() { result = sink }
+
+    override Configuration getConfiguration() { result = conf }
 
     override PathNode getASuccessor() { none() }
   }
@@ -169,25 +190,23 @@ module ControlFlow {
 
     override Node getNode() { result = b.getFirstNode() }
 
-    override PathNode getASuccessor() { result = TPathNodeMid(b.getASuccessor(), l, conf) }
+    override Configuration getConfiguration() { result = conf }
+
+    override PathNode getASuccessor() {
+      result = TPathNodeMid(b.getASuccessor(), l, conf)
+      or
+      exists(BasicBlock succ | succ = b.getASuccessor() |
+        result = TPathNodeSink(succ.getANode(), l, conf)
+      )
+    }
   }
 
   module PathGraph {
     query predicate edges(PathNode n1, PathNode n2) { n1.getASuccessor() = n2 }
   }
 
-  private predicate hasFlow(PathNodeSrc src, PathNodeSink sink, Label l, Configuration conf) {
-    exists(BasicBlock b, int i, int j |
-      srcBlock(b, i, src, l, conf) and
-      sinkBlock(b, j, sink, l, conf) and
-      i <= j
-    )
-    or
-    exists(BasicBlock b1, BasicBlock b2 |
-      srcBlock(b1, _, src, l, conf) and
-      sinkBlock(b2, _, sink, l, conf) and
-      flow() and
-      b1 != b2
-    )
+  private predicate hasFlow(PathNodeSrc src, PathNodeSink sink, Configuration conf) {
+    src.getASuccessor+() = sink and
+    conf = src.getConfiguration()
   }
 }
