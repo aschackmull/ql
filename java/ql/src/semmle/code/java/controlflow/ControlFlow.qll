@@ -123,7 +123,7 @@ module ControlFlow {
     flowFwdEntry(b, l, conf) and
     (
       exists(int i |
-        sinkBlock(b, _, _, l, conf) and
+        sinkBlock(b, i, _, l, conf) and
         not exists(int j | barrierBlock(b, j, l, conf) and j <= i)
       )
       or
