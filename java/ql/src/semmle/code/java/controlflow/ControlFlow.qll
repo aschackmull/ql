@@ -91,31 +91,61 @@ module ControlFlow {
     conf.isSink(sink, l)
   }
 
-  private predicate flowFwd(BasicBlock b, Label l, Configuration conf) {
-    srcBlock(b, _, _, l, conf)
+  private predicate barrierBlock(BasicBlock b, int i, Label l, Configuration conf) {
+    conf.isBarrier(b.getNode(i), l)
     or
+    conf.isBarrierEdge(b.getNode(i - 1), b.getNode(i), l)
+  }
+
+  private predicate barrierEdge(BasicBlock b1, BasicBlock b2, Label l, Configuration conf) {
+    conf.isBarrierEdge(b2.getLastNode(), b1.getFirstNode(), l)
+  }
+
+  private predicate flowFwdEntry(BasicBlock b, Label l, Configuration conf) {
     exists(BasicBlock mid |
-      flowFwd(mid, l, conf) and
-      mid.getASuccessor() = b
+      flowFwdExit(mid, l, conf) and
+      mid.getASuccessor() = b and
+      not barrierEdge(mid, b, l, conf)
     )
   }
 
-  private predicate flowRev(BasicBlock b, Label l, Configuration conf) {
-    flowFwd(b, l, conf) and
+  private predicate flowFwdExit(BasicBlock b, Label l, Configuration conf) {
+    exists(int i |
+      srcBlock(b, i, _, l, conf) and
+      not exists(int j | barrierBlock(b, j, l, conf) and i <= j)
+    )
+    or
+    flowFwdEntry(b, l, conf) and
+    not barrierBlock(b, _, l, conf)
+  }
+
+  private predicate flowRevEntry(BasicBlock b, Label l, Configuration conf) {
+    flowFwdEntry(b, l, conf) and
     (
-      sinkBlock(b, _, _, l, conf)
-      or
-      exists(BasicBlock mid |
-        flowRev(mid, l, conf) and
-        mid.getAPredecessor() = b
+      exists(int i |
+        sinkBlock(b, _, _, l, conf) and
+        not exists(int j | barrierBlock(b, j, l, conf) and j <= i)
       )
+      or
+      flowRevExit(b, l, conf) and
+      not barrierBlock(b, _, l, conf)
+    )
+  }
+
+  private predicate flowRevExit(BasicBlock b, Label l, Configuration conf) {
+    flowFwdExit(b, l, conf) and
+    exists(BasicBlock mid |
+      flowRevEntry(mid, l, conf) and
+      mid.getAPredecessor() = b and
+      not barrierEdge(b, mid, l, conf)
     )
   }
 
   private newtype TPathNode =
     TPathNodeSrc(Node src, Label l, Configuration conf) { srcBlock(_, _, src, l, conf) } or
     TPathNodeSink(Node sink, Label l, Configuration conf) { sinkBlock(_, _, sink, l, conf) } or
-    TPathNodeMid(BasicBlock b, Label l, Configuration conf) { flowRev(b, l, conf) }
+    TPathNodeMidEntry(BasicBlock b, Label l, Configuration conf) { flowRevEntry(b, l, conf) } or
+    TPathNodeMidExit(BasicBlock b, Label l, Configuration conf) { flowRevExit(b, l, conf) }
 
   class PathNode extends TPathNode {
     abstract Node getNode();
@@ -156,11 +186,7 @@ module ControlFlow {
     override Label getLabel() { result = l }
 
     override PathNode getASuccessor() {
-      exists(BasicBlock b | b.getANode() = src | result = TPathNodeMid(b.getASuccessor(), l, conf))
-      or
-      exists(BasicBlock b | b.getANode() = src |
-        result = TPathNodeSink(b.getASuccessor().getANode(), l, conf)
-      )
+      exists(BasicBlock b | b.getANode() = src | result = TPathNodeMidExit(b, l, conf))
       or
       exists(BasicBlock b, Node sink, int i, int j |
         srcBlock(b, i, src, l, conf) and
@@ -187,12 +213,12 @@ module ControlFlow {
     override PathNode getASuccessor() { none() }
   }
 
-  private class PathNodeMid extends PathNode, TPathNodeMid {
+  private class PathNodeMidEntry extends PathNode, TPathNodeMidEntry {
     BasicBlock b;
     Label l;
     Configuration conf;
 
-    PathNodeMid() { this = TPathNodeMid(b, l, conf) }
+    PathNodeMidEntry() { this = TPathNodeMidEntry(b, l, conf) }
 
     override Node getNode() { result = b.getFirstNode() }
 
@@ -201,12 +227,26 @@ module ControlFlow {
     override Label getLabel() { result = l }
 
     override PathNode getASuccessor() {
-      result = TPathNodeMid(b.getASuccessor(), l, conf)
+      result = TPathNodeMidExit(b, l, conf)
       or
-      exists(BasicBlock succ | succ = b.getASuccessor() |
-        result = TPathNodeSink(succ.getANode(), l, conf)
-      )
+      result = TPathNodeSink(b.getANode(), l, conf)
     }
+  }
+
+  private class PathNodeMidExit extends PathNode, TPathNodeMidExit {
+    BasicBlock b;
+    Label l;
+    Configuration conf;
+
+    PathNodeMidExit() { this = TPathNodeMidExit(b, l, conf) }
+
+    override Node getNode() { result = b.getFirstNode() }
+
+    override Configuration getConfiguration() { result = conf }
+
+    override Label getLabel() { result = l }
+
+    override PathNode getASuccessor() { result = TPathNodeMidEntry(b.getASuccessor(), l, conf) }
   }
 
   module PathGraph {
