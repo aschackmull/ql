@@ -98,7 +98,7 @@ module ControlFlow {
   }
 
   private predicate barrierEdge(BasicBlock b1, BasicBlock b2, Label l, Configuration conf) {
-    conf.isBarrierEdge(b2.getLastNode(), b1.getFirstNode(), l)
+    conf.isBarrierEdge(b1.getLastNode(), b2.getFirstNode(), l)
   }
 
   private predicate flowFwdEntry(BasicBlock b, Label l, Configuration conf) {
