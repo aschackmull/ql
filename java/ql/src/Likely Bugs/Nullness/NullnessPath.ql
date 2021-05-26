@@ -118,6 +118,10 @@ class NullnessConfiguration extends ControlFlow::Configuration {
       nullGuard(v, branch, false).hasBranchEdge(b1, b2, branch)
     )
   }
+
+  override predicate isBarrier(ControlFlow::Node n, ControlFlow::Label l) {
+    n.(Assignment).getDest().(VarAccess).getVariable() = l.(LabelVar).getVar()
+  }
 }
 
 from ControlFlow::PathNode src, ControlFlow::PathNode sink, NullnessConfiguration conf
