@@ -4,6 +4,7 @@
 
 import java
 private import semmle.code.java.dataflow.SSA
+import semmle.code.java.dataflow.NullGuards
 import semmle.code.java.controlflow.ControlFlow
 private import semmle.code.java.controlflow.ControlFlowSpecific
 import ControlFlow::PathGraph
@@ -11,7 +12,6 @@ import ControlFlow::PathGraph
 /** Helpers copied from semmle.code.java.dataflow.Nullness */
 module NullHelpers {
   private import semmle.code.java.dataflow.Nullness as N
-  private import semmle.code.java.dataflow.NullGuards
   private import semmle.code.java.frameworks.Assertions
 
   /**
@@ -109,6 +109,13 @@ class NullnessConfiguration extends ControlFlow::Configuration {
     exists(SsaVariable v | v.getSourceVariable().getVariable() = l.(LabelVar).getVar() |
       n1 = ensureNotNull(v) and
       n2 = n1.getASuccessor()
+    )
+    or
+    exists(SsaVariable v, BasicBlock b1, BasicBlock b2, boolean branch |
+      v.getSourceVariable().getVariable() = l.(LabelVar).getVar() and
+      n1 = b1.getLastNode() and
+      n2 = b2.getFirstNode() and
+      nullGuard(v, branch, false).hasBranchEdge(b1, b2, branch)
     )
   }
 }
