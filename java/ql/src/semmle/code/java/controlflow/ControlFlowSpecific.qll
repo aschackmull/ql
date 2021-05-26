@@ -6,7 +6,9 @@ module Private {
 
 private import Private
 
-private newtype TLabel = TLabelUnit()
+private newtype TLabel =
+  TLabelUnit() or
+  TLabelVar(Variable var)
 
 module Public {
   class Node = ControlFlowNode;
@@ -18,6 +20,16 @@ module Public {
 
 private import Public
 
-private class LabelUnit extends Label, TLabelUnit {
+class LabelUnit extends Label, TLabelUnit {
   override string toString() { result = "labelunit" }
+}
+
+class LabelVar extends Label, TLabelVar {
+  Variable var;
+
+  LabelVar() { this = TLabelVar(var) }
+
+  Variable getVar() { result = var }
+
+  override string toString() { result = var.toString() }
 }
