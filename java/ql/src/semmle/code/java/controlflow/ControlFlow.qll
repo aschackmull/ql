@@ -101,6 +101,20 @@ module ControlFlow {
     conf.isBarrierEdge(b1.getLastNode(), b2.getFirstNode(), l)
   }
 
+  private predicate stepSrcToExit(BasicBlock b, Node src, Label l, Configuration conf) {
+    exists(int i |
+      srcBlock(b, i, src, l, conf) and
+      not exists(int j | barrierBlock(b, j, l, conf) and i <= j)
+    )
+  }
+
+  private predicate stepEntryToSink(BasicBlock b, Node sink, Label l, Configuration conf) {
+    exists(int i |
+      sinkBlock(b, i, sink, l, conf) and
+      not exists(int j | barrierBlock(b, j, l, conf) and j <= i)
+    )
+  }
+
   private predicate flowFwdEntry(BasicBlock b, Label l, Configuration conf) {
     exists(BasicBlock mid |
       flowFwdExit(mid, l, conf) and
@@ -110,10 +124,7 @@ module ControlFlow {
   }
 
   private predicate flowFwdExit(BasicBlock b, Label l, Configuration conf) {
-    exists(int i |
-      srcBlock(b, i, _, l, conf) and
-      not exists(int j | barrierBlock(b, j, l, conf) and i <= j)
-    )
+    stepSrcToExit(b, _, l, conf)
     or
     flowFwdEntry(b, l, conf) and
     not barrierBlock(b, _, l, conf)
@@ -122,10 +133,7 @@ module ControlFlow {
   private predicate flowRevEntry(BasicBlock b, Label l, Configuration conf) {
     flowFwdEntry(b, l, conf) and
     (
-      exists(int i |
-        sinkBlock(b, i, _, l, conf) and
-        not exists(int j | barrierBlock(b, j, l, conf) and j <= i)
-      )
+      stepEntryToSink(b, _, l, conf)
       or
       flowRevExit(b, l, conf) and
       not barrierBlock(b, _, l, conf)
@@ -186,13 +194,17 @@ module ControlFlow {
     override Label getLabel() { result = l }
 
     override PathNode getASuccessor() {
-      exists(BasicBlock b | b.getANode() = src | result = TPathNodeMidExit(b, l, conf))
+      exists(BasicBlock b |
+        stepSrcToExit(b, src, l, conf) and
+        result = TPathNodeMidExit(b, l, conf)
+      )
       or
       exists(BasicBlock b, Node sink, int i, int j |
         srcBlock(b, i, src, l, conf) and
         sinkBlock(b, j, sink, l, conf) and
         i <= j and
-        result = TPathNodeSink(sink, l, conf)
+        result = TPathNodeSink(sink, l, conf) and
+        not exists(int k | barrierBlock(b, k, l, conf) and i <= k and k <= j)
       )
     }
   }
@@ -227,9 +239,13 @@ module ControlFlow {
     override Label getLabel() { result = l }
 
     override PathNode getASuccessor() {
-      result = TPathNodeMidExit(b, l, conf)
+      result = TPathNodeMidExit(b, l, conf) and
+      not barrierBlock(b, _, l, conf)
       or
-      result = TPathNodeSink(b.getANode(), l, conf)
+      exists(Node sink |
+        stepEntryToSink(b, sink, l, conf) and
+        result = TPathNodeSink(sink, l, conf)
+      )
     }
   }
 
@@ -240,13 +256,19 @@ module ControlFlow {
 
     PathNodeMidExit() { this = TPathNodeMidExit(b, l, conf) }
 
-    override Node getNode() { result = b.getFirstNode() }
+    override Node getNode() { result = b.getLastNode() }
 
     override Configuration getConfiguration() { result = conf }
 
     override Label getLabel() { result = l }
 
-    override PathNode getASuccessor() { result = TPathNodeMidEntry(b.getASuccessor(), l, conf) }
+    override PathNode getASuccessor() {
+      exists(BasicBlock succ |
+        succ = b.getASuccessor() and
+        result = TPathNodeMidEntry(succ, l, conf) and
+        not barrierEdge(b, succ, l, conf)
+      )
+    }
   }
 
   module PathGraph {
