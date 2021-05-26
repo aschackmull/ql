@@ -28,7 +28,7 @@ module NullHelpers {
    * A `ControlFlowNode` that ensures that the SSA variable is not null in any
    * subsequent use, either by dereferencing it or by an assertion.
    */
-  private ControlFlowNode ensureNotNull(SsaVariable v) {
+  ControlFlowNode ensureNotNull(SsaVariable v) {
     result = varDereference(v, _)
     or
     result.(AssertStmt).getExpr() = nullGuard(v, true, false)
@@ -103,6 +103,13 @@ class NullnessConfiguration extends ControlFlow::Configuration {
   override predicate isSink(ControlFlow::Node sink, ControlFlow::Label l) {
     dereference(sink) and
     sink.(VarAccess).getVariable() = l.(LabelVar).getVar()
+  }
+
+  override predicate isBarrierEdge(ControlFlow::Node n1, ControlFlow::Node n2, ControlFlow::Label l) {
+    exists(SsaVariable v | v.getSourceVariable().getVariable() = l.(LabelVar).getVar() |
+      n1 = ensureNotNull(v) and
+      n2 = n1.getASuccessor()
+    )
   }
 }
 
