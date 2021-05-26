@@ -122,6 +122,8 @@ module ControlFlow {
 
     abstract Configuration getConfiguration();
 
+    abstract Label getLabel();
+
     abstract PathNode getASuccessor();
 
     string toString() { result = this.getNode().toString() }
@@ -151,6 +153,8 @@ module ControlFlow {
 
     override Configuration getConfiguration() { result = conf }
 
+    override Label getLabel() { result = l }
+
     override PathNode getASuccessor() {
       exists(BasicBlock b | b.getANode() = src | result = TPathNodeMid(b.getASuccessor(), l, conf))
       or
@@ -178,6 +182,8 @@ module ControlFlow {
 
     override Configuration getConfiguration() { result = conf }
 
+    override Label getLabel() { result = l }
+
     override PathNode getASuccessor() { none() }
   }
 
@@ -191,6 +197,8 @@ module ControlFlow {
     override Node getNode() { result = b.getFirstNode() }
 
     override Configuration getConfiguration() { result = conf }
+
+    override Label getLabel() { result = l }
 
     override PathNode getASuccessor() {
       result = TPathNodeMid(b.getASuccessor(), l, conf)
