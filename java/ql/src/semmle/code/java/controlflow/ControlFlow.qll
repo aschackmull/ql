@@ -240,7 +240,7 @@ module ControlFlow {
 
     PathNodeMidExit() { this = TPathNodeMidExit(b, l, conf) }
 
-    override Node getNode() { result = b.getFirstNode() }
+    override Node getNode() { result = b.getLastNode() }
 
     override Configuration getConfiguration() { result = conf }
 
