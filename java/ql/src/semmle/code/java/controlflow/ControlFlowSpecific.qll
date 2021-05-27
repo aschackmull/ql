@@ -19,6 +19,8 @@ module Private {
   class Split extends TSplit {
     abstract string toString();
 
+    abstract J::Location getLocation();
+
     abstract predicate entry(Node n1, Node n2);
 
     abstract predicate exit(Node n1, Node n2);
@@ -38,6 +40,8 @@ private class SplitFinally extends Split, TSplitFinally {
   SplitFinally() { this = TSplitFinally(finally) }
 
   override string toString() { result = "split finally" }
+
+  override J::Location getLocation() { result = finally.getLocation() }
 
   override predicate entry(Node n1, Node n2) {
     n1.getAnExceptionSuccessor() = n2 and

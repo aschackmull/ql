@@ -3,12 +3,22 @@ private import ControlFlowSpecific::Private
 module ControlFlow {
   import ControlFlowSpecific::Public
 
+  private predicate splitEdge(Node n1, Node n2) {
+    exists(Split split |
+      split.entry(n1, n2) or
+      split.exit(n1, n2) or
+      split.blocked(n1, n2)
+    )
+  }
+
   private predicate bbFirst(Node bb) {
     not edge(_, bb) and edge(bb, _)
     or
     strictcount(Node pred | edge(pred, bb)) > 1
     or
     exists(Node pred | edge(pred, bb) | strictcount(Node succ | edge(pred, succ)) > 1)
+    or
+    splitEdge(_, bb)
   }
 
   private newtype TBasicBlock = TMkBlock(Node bb) { bbFirst(bb) }
@@ -299,8 +309,66 @@ module ControlFlow {
     )
   }
 
+  private predicate candSplit(Callable c, Split split, Configuration conf) {
+    exists(Node n1, Node n2, Label l |
+      step(n1, n2, l, conf) and
+      flowRev(n1, pragma[only_bind_into](l), pragma[only_bind_into](conf)) and
+      flowRev(n2, pragma[only_bind_into](l), pragma[only_bind_into](conf)) and
+      split.entry(n1, n2) and
+      c = getEnclosingCallable(n1)
+    )
+  }
+
+  private predicate flowFwdEntry(Node n, Label l, Configuration conf) {
+    flowRev(n, l, conf) and
+    (
+      conf.isSource(n, l) and
+      not conf.isBarrier(n, l)
+      or
+      exists(Node call, Label lmid, Callable c |
+        flowFwd2(call, lmid, conf) and
+        callTarget2(_, lmid, call, c, l, conf) and
+        flowEntry(c, n)
+      )
+    )
+  }
+
+  private predicate flowFwdNoSplit(Node n, Label l, Configuration conf) {
+    flowFwdEntry(n, l, conf)
+    or
+    flowRev(n, l, conf) and
+    exists(Node mid |
+      flowFwdNoSplit(mid, l, conf) and
+      step(mid, n, l, conf)
+    )
+  }
+
+  private predicate flowFwdSplit(Node n, Label l, Split s, boolean active, Configuration conf) {
+    flowFwdEntry(n, l, conf) and
+    candSplit(getEnclosingCallable(n), s, conf) and
+    active = false
+    or
+    flowRev(n, l, conf) and
+    exists(Node mid, boolean a |
+      flowFwdSplit(mid, l, s, a, conf) and
+      step(mid, n, l, conf) and
+      not (a = true and s.blocked(mid, n)) and
+      if s.exit(mid, n)
+      then active = false
+      else
+        if s.entry(mid, n)
+        then active = true
+        else active = a
+    )
+  }
+
+  private predicate flowFwd2(Node n, Label l, Configuration conf) {
+    flowFwdNoSplit(n, l, conf) and
+    forall(Split s | candSplit(getEnclosingCallable(n), s, conf) | flowFwdSplit(n, l, s, _, conf))
+  }
+
   private newtype TPathNode =
-    TPathNodeMk(Node n, Label l, Configuration conf) { flowRev(n, l, conf) }
+    TPathNodeMk(Node n, Label l, Configuration conf) { flowFwd2(n, l, conf) }
 
   class PathNode extends TPathNode {
     Node n;
