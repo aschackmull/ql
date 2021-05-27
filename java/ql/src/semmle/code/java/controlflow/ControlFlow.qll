@@ -216,6 +216,13 @@ module ControlFlow {
     not n = b.getLastNode()
   }
 
+  /**
+   * Holds if it is possible to step from `n1` to `n2`. This implies
+   * - `n2` is not a barrier
+   * - no node between `n1` and `n2` is a barrier node
+   * - there is no edge barrier between `n1` and `n2`
+   * Note that `n1` is allowed to be a barrier node, but that this does not occur when called from `flowFwd` below.
+   */
   private predicate step(Node n1, Node n2, Label l, Configuration conf) {
     n1 != n2 and
     (
@@ -223,8 +230,8 @@ module ControlFlow {
       exists(BasicBlock b, int i, int j |
         candNode(b, i, n1, l, conf) and
         candNode(b, j, n2, l, conf) and
-        i <= j and
-        not exists(int k | barrierBlock(b, k, l, conf) and i <= k and k <= j)
+        i < j and
+        not exists(int k | barrierBlock(b, k, l, conf) and i < k and k <= j)
       )
       or
       // block entry -> node
@@ -238,7 +245,7 @@ module ControlFlow {
       exists(BasicBlock b, int i |
         candNode(b, i, n1, l, conf) and
         n2 = b.getLastNode() and
-        not exists(int j | barrierBlock(b, j, l, conf) and i <= j)
+        not exists(int j | barrierBlock(b, j, l, conf) and i < j)
       )
       or
       // block entry -> block end
