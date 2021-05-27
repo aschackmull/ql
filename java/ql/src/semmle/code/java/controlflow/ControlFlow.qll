@@ -64,6 +64,36 @@ module ControlFlow {
     /** Gets the number of control-flow nodes contained in this basic block. */
     cached
     int length() { result = strictcount(getANode()) }
+
+    /** Holds if this basic block dominates `node`. (This is reflexive.) */
+    predicate dominates(BasicBlock node) { bbDominates(this, node) }
+
+    Callable getEnclosingCallable() { result = getEnclosingCallable(this.getFirstNode()) }
+  }
+
+  /*
+   * Predicates for basic-block-level dominance.
+   */
+
+  /** Entry points for control-flow. */
+  private predicate flowEntry(BasicBlock entry) {
+    exists(getEnclosingCallable(entry.getFirstNode()))
+  }
+
+  /** The successor relation for basic blocks. */
+  private predicate bbSucc(BasicBlock pre, BasicBlock post) { post = pre.getASuccessor() }
+
+  /** The immediate dominance relation for basic blocks. */
+  cached
+  predicate bbIDominates(BasicBlock dom, BasicBlock node) =
+    idominance(flowEntry/1, bbSucc/2)(_, dom, node)
+
+  /** Holds if `dom` strictly dominates `node`. */
+  predicate bbStrictlyDominates(BasicBlock dom, BasicBlock node) { bbIDominates+(dom, node) }
+
+  /** Holds if `dom` dominates `node`. (This is reflexive.) */
+  predicate bbDominates(BasicBlock dom, BasicBlock node) {
+    bbStrictlyDominates(dom, node) or dom = node
   }
 
   abstract class Configuration extends string {
@@ -89,6 +119,8 @@ module ControlFlow {
     conf.isBarrier(b.getNode(i), l)
     or
     conf.isBarrierEdge(b.getNode(i - 1), b.getNode(i), l)
+    or
+    barrierCall(b.getNode(i), l, conf)
   }
 
   private predicate barrierEdge(BasicBlock b1, BasicBlock b2, Label l, Configuration conf) {
@@ -296,6 +328,62 @@ module ControlFlow {
         flowEntry(c, entry) and
         callTarget2(_, l, n, c, lmid, conf)
       )
+    )
+  }
+
+  BasicBlock barrierBlock(Label l, Configuration conf) { barrierBlock(result, _, l, conf) }
+
+  /**
+   * Holds if every path through `call` goes through at least one barrier node.
+   * We require that `call` has a unique call target.
+   */
+  private predicate barrierCall(CallNode call, Label l, Configuration conf) {
+    exists(Callable target |
+      callTargetUniq(call, target) and
+      barrierCallable(target, l, conf)
+    )
+  }
+
+  /** Holds if a barrier dominates the exit of the callable. */
+  private predicate barrierDominatesExit(Callable callable, Label l, Configuration conf) {
+    exists(BasicBlock exit |
+      exit.getLastNode() = callable and
+      barrierBlock(l, conf).dominates(exit)
+    )
+  }
+
+  /** Gets a `BasicBlock` that contains a barrier that does not dominate the exit. */
+  private BasicBlock nonDominatingBarrierBlock(Label l, Configuration conf) {
+    exists(BasicBlock exit |
+      result = barrierBlock(l, conf) and
+      exit.getLastNode() = result.getEnclosingCallable() and
+      not result.dominates(exit)
+    )
+  }
+
+  private class JoinBlock extends BasicBlock {
+    JoinBlock() { 2 <= strictcount(this.getAPredecessor()) }
+  }
+
+  /**
+   * Holds if `bb` is a block that is collectively dominated by a set of one or
+   * more barriers that individually do not dominate the exit.
+   */
+  private predicate postBarrierBlock(BasicBlock bb, Label l, Configuration conf) {
+    bb = nonDominatingBarrierBlock(l, conf) // is `bb` dominated by a barrier whenever it contains one?
+    or
+    if bb instanceof JoinBlock
+    then forall(BasicBlock pred | pred = bb.getAPredecessor() | postBarrierBlock(pred, l, conf))
+    else postBarrierBlock(bb.getAPredecessor(), l, conf)
+  }
+
+  /** Holds if every path through `callable` goes through at least one barrier node. */
+  private predicate barrierCallable(Callable callable, Label l, Configuration conf) {
+    barrierDominatesExit(callable, l, conf)
+    or
+    exists(BasicBlock exit |
+      exit.getLastNode() = callable and
+      postBarrierBlock(exit, l, conf)
     )
   }
 
