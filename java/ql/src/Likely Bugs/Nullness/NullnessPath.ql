@@ -88,15 +88,20 @@ module NullHelpers {
 
 private import NullHelpers
 
+predicate source(ControlFlow::Node src, ControlFlow::Label l, Variable v, string msg, Expr reason) {
+  exists(SsaVariable ssa |
+    src = ssa.getCFGNode() and
+    v = ssa.getSourceVariable().getVariable() and
+    l.(ControlFlow::LabelVar).getVar() = v and
+    varMaybeNull(ssa, msg, reason)
+  )
+}
+
 class NullnessConfiguration extends ControlFlow::Configuration {
   NullnessConfiguration() { this = "NullnessConfiguration" }
 
   override predicate isSource(ControlFlow::Node src, ControlFlow::Label l) {
-    exists(SsaVariable v |
-      src = v.getCFGNode() and
-      l.(ControlFlow::LabelVar).getVar() = v.getSourceVariable().getVariable() and
-      varMaybeNull(v, _, _)
-    )
+    source(src, l, _, _, _)
   }
 
   override predicate isSink(ControlFlow::Node sink, ControlFlow::Label l) {
@@ -139,6 +144,11 @@ class NullnessConfiguration extends ControlFlow::Configuration {
   }
 }
 
-from ControlFlow::PathNode src, ControlFlow::PathNode sink, NullnessConfiguration conf
-where conf.hasFlow(src, sink)
-select sink, src, sink, "variable " + src.getLabel() + " might be null"
+from
+  ControlFlow::PathNode src, ControlFlow::PathNode sink, NullnessConfiguration conf, Variable var,
+  string msg, Expr reason
+where
+  conf.hasFlow(src, sink) and
+  source(src.getNode(), src.getLabel(), var, msg, reason)
+select sink, src, sink, "Variable $@ may be null here " + msg + ".", var, var.getName(), reason,
+  "this"
