@@ -78,17 +78,11 @@ module ControlFlow {
 
     predicate isBarrier(Node n, Label l) { none() }
 
+    predicate callLabel(CallNode c, Label l, Position p) { none() }
+
+    predicate callableLabel(Callable c, Label l, Position p) { none() }
+
     final predicate hasFlow(PathNode src, PathNode sink) { hasFlow(src, sink, this) }
-  }
-
-  private predicate srcBlock(BasicBlock b, int i, Node src, Label l, Configuration conf) {
-    src = b.getNode(i) and
-    conf.isSource(src, l)
-  }
-
-  private predicate sinkBlock(BasicBlock b, int i, Node sink, Label l, Configuration conf) {
-    sink = b.getNode(i) and
-    conf.isSink(sink, l)
   }
 
   private predicate barrierBlock(BasicBlock b, int i, Label l, Configuration conf) {
@@ -101,68 +95,216 @@ module ControlFlow {
     conf.isBarrierEdge(b1.getLastNode(), b2.getFirstNode(), l)
   }
 
-  private predicate stepSrcToExit(BasicBlock b, Node src, Label l, Configuration conf) {
-    exists(int i |
-      srcBlock(b, i, src, l, conf) and
-      not exists(int j | barrierBlock(b, j, l, conf) and i <= j)
+  private predicate callTargetUniq(CallNode call, Callable target) {
+    target = unique(Callable tgt | callTarget(call, tgt))
+  }
+
+  private predicate callTargetUniq(
+    Callable c1, Label l1, CallNode call, Callable c2, Label l2, Configuration conf
+  ) {
+    exists(Position p |
+      c1 = getEnclosingCallable(call) and
+      callTargetUniq(call, c2) and
+      conf.callLabel(call, l1, p) and
+      conf.callableLabel(c2, l2, p)
     )
   }
 
-  private predicate stepEntryToSink(BasicBlock b, Node sink, Label l, Configuration conf) {
-    exists(int i |
-      sinkBlock(b, i, sink, l, conf) and
-      not exists(int j | barrierBlock(b, j, l, conf) and j <= i)
+  private predicate callTarget(
+    Callable c1, Label l1, CallNode call, Callable c2, Label l2, Configuration conf
+  ) {
+    exists(Position p |
+      c1 = getEnclosingCallable(call) and
+      callTarget(call, c2) and
+      conf.callLabel(call, l1, p) and
+      conf.callableLabel(c2, l2, p)
     )
   }
 
-  private predicate flowFwdEntry(BasicBlock b, Label l, Configuration conf) {
-    exists(BasicBlock mid |
-      flowFwdExit(mid, l, conf) and
-      mid.getASuccessor() = b and
-      not barrierEdge(mid, b, l, conf)
+  private predicate candScopeFwd(Callable c, Label l, boolean cc, Configuration conf) {
+    exists(Node src |
+      conf.isSource(src, l) and
+      c = getEnclosingCallable(src) and
+      cc = false
     )
-  }
-
-  private predicate flowFwdExit(BasicBlock b, Label l, Configuration conf) {
-    stepSrcToExit(b, _, l, conf)
     or
-    flowFwdEntry(b, l, conf) and
-    not barrierBlock(b, _, l, conf)
-  }
-
-  private predicate flowRevEntry(BasicBlock b, Label l, Configuration conf) {
-    flowFwdEntry(b, l, conf) and
-    (
-      stepEntryToSink(b, _, l, conf)
-      or
-      flowRevExit(b, l, conf) and
-      not barrierBlock(b, _, l, conf)
+    exists(Callable mid, CallNode call, Label lmid |
+      candScopeFwd(mid, lmid, _, conf) and
+      callTarget(mid, lmid, call, c, l, conf) and
+      cc = true
+    )
+    or
+    exists(Callable mid, CallNode call, Label lmid |
+      candScopeFwd(mid, lmid, cc, conf) and
+      callTarget(c, l, call, mid, lmid, conf) and
+      cc = false
     )
   }
 
-  private predicate flowRevExit(BasicBlock b, Label l, Configuration conf) {
-    flowFwdExit(b, l, conf) and
-    exists(BasicBlock mid |
-      flowRevEntry(mid, l, conf) and
-      mid.getAPredecessor() = b and
-      not barrierEdge(b, mid, l, conf)
+  private predicate candScopeRev(Callable c, Label l, boolean cc, Configuration conf) {
+    candScopeFwd(c, l, _, conf) and
+    (
+      exists(Node sink |
+        conf.isSink(sink, l) and
+        c = getEnclosingCallable(sink) and
+        cc = false
+      )
+      or
+      exists(Callable mid, Label lmid |
+        candScopeRev(mid, lmid, _, conf) and
+        callTarget(mid, lmid, _, c, l, conf) and
+        cc = true
+      )
+      or
+      exists(Callable mid, Label lmid |
+        candScopeRev(mid, lmid, cc, conf) and
+        callTarget(c, l, _, mid, lmid, conf) and
+        cc = false
+      )
+    )
+  }
+
+  private predicate callTarget2(
+    Callable c1, Label l1, CallNode call, Callable c2, Label l2, Configuration conf
+  ) {
+    callTarget(c1, l1, call, c2, l2, conf) and
+    candScopeRev(c1, l1, _, pragma[only_bind_into](conf)) and
+    candScopeRev(c2, l2, _, pragma[only_bind_into](conf))
+  }
+
+  private predicate candScopeBarrierFwd(Callable c, Label l, Configuration conf) {
+    candScopeRev(c, l, _, conf)
+    or
+    exists(Callable mid, Label lmid |
+      candScopeBarrierFwd(mid, lmid, conf) and
+      callTargetUniq(mid, lmid, _, c, l, conf)
+    )
+  }
+
+  private predicate candScopeBarrierRev(Callable c, Label l, Configuration conf) {
+    candScopeBarrierFwd(c, l, conf) and
+    (
+      exists(BasicBlock b |
+        barrierBlock(b, _, l, conf) and
+        c = getEnclosingCallable(b.getFirstNode())
+      )
+      or
+      exists(BasicBlock b |
+        barrierEdge(b, _, l, conf) and
+        c = getEnclosingCallable(b.getFirstNode())
+      )
+      or
+      exists(Callable mid, Label lmid |
+        candScopeBarrierRev(mid, lmid, conf) and
+        callTargetUniq(c, l, _, mid, lmid, conf)
+      )
+    )
+  }
+
+  private predicate candLabel(BasicBlock b, Label l, Configuration conf) {
+    candScopeRev(getEnclosingCallable(b.getFirstNode()), l, _, conf)
+  }
+
+  private predicate candNode(BasicBlock b, int i, Node n, Label l, Configuration conf) {
+    (
+      conf.isSource(n, l) or
+      conf.isSink(n, l) or
+      callTarget2(_, l, n, _, _, conf)
+    ) and
+    b.getNode(i) = n and
+    not n = b.getFirstNode() and
+    not n = b.getLastNode()
+  }
+
+  private predicate step(Node n1, Node n2, Label l, Configuration conf) {
+    n1 != n2 and
+    (
+      // intra-block step
+      exists(BasicBlock b, int i, int j |
+        candNode(b, i, n1, l, conf) and
+        candNode(b, j, n2, l, conf) and
+        i <= j and
+        not exists(int k | barrierBlock(b, k, l, conf) and i <= k and k <= j)
+      )
+      or
+      // block entry -> node
+      exists(BasicBlock b, int i |
+        n1 = b.getFirstNode() and
+        candNode(b, i, n2, l, conf) and
+        not exists(int j | barrierBlock(b, j, l, conf) and j <= i)
+      )
+      or
+      // node -> block end
+      exists(BasicBlock b, int i |
+        candNode(b, i, n1, l, conf) and
+        n2 = b.getLastNode() and
+        not exists(int j | barrierBlock(b, j, l, conf) and i <= j)
+      )
+      or
+      // block entry -> block end
+      exists(BasicBlock b |
+        n1 = b.getFirstNode() and
+        n2 = b.getLastNode() and
+        candLabel(b, l, conf) and
+        not barrierBlock(b, _, l, conf)
+      )
+      or
+      // block end -> block entry
+      exists(BasicBlock b1, BasicBlock b2 |
+        b1.getASuccessor() = b2 and
+        n1 = b1.getLastNode() and
+        n2 = b2.getFirstNode() and
+        candLabel(b1, l, conf) and
+        not barrierEdge(b1, b2, l, conf)
+      )
+    )
+  }
+
+  private predicate flowFwd(Node n, Label l, Configuration conf) {
+    candScopeRev(getEnclosingCallable(n), l, _, conf) and
+    (
+      conf.isSource(n, l)
+      or
+      exists(Node mid | flowFwd(mid, l, conf) and step(mid, n, l, conf))
+      or
+      exists(Node call, Label lmid, Callable c |
+        flowFwd(call, lmid, conf) and
+        callTarget2(_, lmid, call, c, l, conf) and
+        flowEntry(c, n)
+      )
+    )
+  }
+
+  private predicate flowRev(Node n, Label l, Configuration conf) {
+    flowFwd(n, l, conf) and
+    (
+      conf.isSink(n, l)
+      or
+      exists(Node mid | flowRev(mid, l, conf) and step(n, mid, l, conf))
+      or
+      exists(Node entry, Label lmid, Callable c |
+        flowRev(entry, lmid, conf) and
+        flowEntry(c, entry) and
+        callTarget2(_, l, n, c, lmid, conf)
+      )
     )
   }
 
   private newtype TPathNode =
-    TPathNodeSrc(Node src, Label l, Configuration conf) { srcBlock(_, _, src, l, conf) } or
-    TPathNodeSink(Node sink, Label l, Configuration conf) { sinkBlock(_, _, sink, l, conf) } or
-    TPathNodeMidEntry(BasicBlock b, Label l, Configuration conf) { flowRevEntry(b, l, conf) } or
-    TPathNodeMidExit(BasicBlock b, Label l, Configuration conf) { flowRevExit(b, l, conf) }
+    TPathNodeMk(Node n, Label l, Configuration conf) { flowRev(n, l, conf) }
 
   class PathNode extends TPathNode {
-    abstract Node getNode();
+    Node n;
+    Label l;
+    Configuration conf;
 
-    abstract Configuration getConfiguration();
+    PathNode() { this = TPathNodeMk(n, l, conf) }
 
-    abstract Label getLabel();
+    Node getNode() { result = n }
 
-    abstract PathNode getASuccessor();
+    Label getLabel() { result = l }
+
+    Configuration getConfiguration() { result = conf }
 
     string toString() { result = this.getNode().toString() }
 
@@ -178,104 +320,32 @@ module ControlFlow {
     ) {
       this.getNode().hasLocationInfo(filepath, startline, startcolumn, endline, endcolumn)
     }
-  }
 
-  class PathNodeSrc extends PathNode, TPathNodeSrc {
-    Node src;
-    Label l;
-    Configuration conf;
-
-    PathNodeSrc() { this = TPathNodeSrc(src, l, conf) }
-
-    override Node getNode() { result = src }
-
-    override Configuration getConfiguration() { result = conf }
-
-    override Label getLabel() { result = l }
-
-    override PathNode getASuccessor() {
-      exists(BasicBlock b |
-        stepSrcToExit(b, src, l, conf) and
-        result = TPathNodeMidExit(b, l, conf)
+    PathNode getASuccessor() {
+      exists(Node succ |
+        step(n, succ, l, conf) and
+        result = TPathNodeMk(succ, l, conf)
       )
       or
-      exists(BasicBlock b, Node sink, int i, int j |
-        srcBlock(b, i, src, l, conf) and
-        sinkBlock(b, j, sink, l, conf) and
-        i <= j and
-        result = TPathNodeSink(sink, l, conf) and
-        not exists(int k | barrierBlock(b, k, l, conf) and i <= k and k <= j)
+      exists(Node succ, Label lsucc, Callable c |
+        callTarget2(_, l, n, c, lsucc, conf) and
+        flowEntry(c, succ) and
+        result = TPathNodeMk(succ, lsucc, conf)
       )
     }
-  }
 
-  class PathNodeSink extends PathNode, TPathNodeSink {
-    Node sink;
-    Label l;
-    Configuration conf;
+    predicate isSource() { conf.isSource(n, l) }
 
-    PathNodeSink() { this = TPathNodeSink(sink, l, conf) }
-
-    override Node getNode() { result = sink }
-
-    override Configuration getConfiguration() { result = conf }
-
-    override Label getLabel() { result = l }
-
-    override PathNode getASuccessor() { none() }
-  }
-
-  private class PathNodeMidEntry extends PathNode, TPathNodeMidEntry {
-    BasicBlock b;
-    Label l;
-    Configuration conf;
-
-    PathNodeMidEntry() { this = TPathNodeMidEntry(b, l, conf) }
-
-    override Node getNode() { result = b.getFirstNode() }
-
-    override Configuration getConfiguration() { result = conf }
-
-    override Label getLabel() { result = l }
-
-    override PathNode getASuccessor() {
-      result = TPathNodeMidExit(b, l, conf) and
-      not barrierBlock(b, _, l, conf)
-      or
-      exists(Node sink |
-        stepEntryToSink(b, sink, l, conf) and
-        result = TPathNodeSink(sink, l, conf)
-      )
-    }
-  }
-
-  private class PathNodeMidExit extends PathNode, TPathNodeMidExit {
-    BasicBlock b;
-    Label l;
-    Configuration conf;
-
-    PathNodeMidExit() { this = TPathNodeMidExit(b, l, conf) }
-
-    override Node getNode() { result = b.getLastNode() }
-
-    override Configuration getConfiguration() { result = conf }
-
-    override Label getLabel() { result = l }
-
-    override PathNode getASuccessor() {
-      exists(BasicBlock succ |
-        succ = b.getASuccessor() and
-        result = TPathNodeMidEntry(succ, l, conf) and
-        not barrierEdge(b, succ, l, conf)
-      )
-    }
+    predicate isSink() { conf.isSink(n, l) }
   }
 
   module PathGraph {
     query predicate edges(PathNode n1, PathNode n2) { n1.getASuccessor() = n2 }
   }
 
-  private predicate hasFlow(PathNodeSrc src, PathNodeSink sink, Configuration conf) {
+  private predicate hasFlow(PathNode src, PathNode sink, Configuration conf) {
+    src.isSource() and
+    sink.isSink() and
     src.getASuccessor+() = sink and
     conf = src.getConfiguration()
   }
