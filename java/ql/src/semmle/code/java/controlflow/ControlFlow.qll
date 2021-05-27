@@ -255,7 +255,8 @@ module ControlFlow {
         n1 = b1.getLastNode() and
         n2 = b2.getFirstNode() and
         candLabel(b1, l, conf) and
-        not barrierEdge(b1, b2, l, conf)
+        not barrierEdge(b1, b2, l, conf) and
+        not barrierBlock(b2, 0, l, conf)
       )
     )
   }
@@ -263,7 +264,8 @@ module ControlFlow {
   private predicate flowFwd(Node n, Label l, Configuration conf) {
     candScopeRev(getEnclosingCallable(n), l, _, conf) and
     (
-      conf.isSource(n, l)
+      conf.isSource(n, l) and
+      not conf.isBarrier(n, l)
       or
       exists(Node mid | flowFwd(mid, l, conf) and step(mid, n, l, conf))
       or
