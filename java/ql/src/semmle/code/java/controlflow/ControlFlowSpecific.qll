@@ -35,7 +35,7 @@ module Public {
   }
 
   class Position extends int {
-    Position() { this = 0 }
+    Position() { any(J::Parameter p).getPosition() = this }
   }
 
   class LabelUnit extends Label, TLabelUnit {

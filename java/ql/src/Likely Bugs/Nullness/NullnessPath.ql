@@ -127,6 +127,16 @@ class NullnessConfiguration extends ControlFlow::Configuration {
     ) and
     not isSource(n, l)
   }
+
+  override predicate callLabel(
+    ControlFlow::CallNode c, ControlFlow::Label l, ControlFlow::Position p
+  ) {
+    c.(Call).getArgument(p).(VarAccess).getVariable() = l.(ControlFlow::LabelVar).getVar()
+  }
+
+  override predicate callableLabel(Callable c, ControlFlow::Label l, ControlFlow::Position p) {
+    l.(ControlFlow::LabelVar).getVar() = c.getParameter(p)
+  }
 }
 
 from ControlFlow::PathNode src, ControlFlow::PathNode sink, NullnessConfiguration conf
