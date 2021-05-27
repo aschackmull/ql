@@ -121,7 +121,10 @@ class NullnessConfiguration extends ControlFlow::Configuration {
   }
 
   override predicate isBarrier(ControlFlow::Node n, ControlFlow::Label l) {
-    n.(Assignment).getDest().(VarAccess).getVariable() = l.(ControlFlow::LabelVar).getVar() and
+    (
+      n.(Assignment).getDest().(VarAccess).getVariable() = l.(ControlFlow::LabelVar).getVar() or
+      n.(LocalVariableDeclExpr).getVariable() = l.(ControlFlow::LabelVar).getVar()
+    ) and
     not isSource(n, l)
   }
 }
