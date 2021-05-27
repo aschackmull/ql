@@ -91,30 +91,49 @@ module ControlFlow {
     conf.isSink(sink, l)
   }
 
-  private predicate barrierBlock(BasicBlock b, int i, Label l, Configuration conf) {
+  /**
+   * Holds if `b` contains a barrier node at node `i`.
+   */
+  private predicate perforatedBlock(BasicBlock b, int i, Label l, Configuration conf) {
     conf.isBarrier(b.getNode(i), l)
+  }
+
+  /**
+   * Holds if `b` is cut by a barrier edge from node `i` to `i+1`.
+   */
+  private predicate cutBlock(BasicBlock b, int i, Label l, Configuration conf) {
+    conf.isBarrierEdge(b.getNode(i), b.getNode(i + 1), l)
+  }
+
+  private predicate barrierBlock(BasicBlock b, Label l, Configuration conf) {
+    perforatedBlock(b, _, l, conf)
     or
-    conf.isBarrierEdge(b.getNode(i - 1), b.getNode(i), l)
+    cutBlock(b, _, l, conf)
   }
 
   private predicate barrierEdge(BasicBlock b1, BasicBlock b2, Label l, Configuration conf) {
     conf.isBarrierEdge(b1.getLastNode(), b2.getFirstNode(), l)
   }
 
+  /** Holds if `src` in `b` can step to the exit node for `b`. */
   private predicate stepSrcToExit(BasicBlock b, Node src, Label l, Configuration conf) {
     exists(int i |
       srcBlock(b, i, src, l, conf) and
-      not exists(int j | barrierBlock(b, j, l, conf) and i <= j)
+      not exists(int j | perforatedBlock(b, j, l, conf) and i <= j) and
+      not exists(int j | cutBlock(b, j, l, conf) and i <= j)
     )
   }
 
+  /** Holds if the entry node for `b` can step to `sink` in `b`. */
   private predicate stepEntryToSink(BasicBlock b, Node sink, Label l, Configuration conf) {
     exists(int i |
       sinkBlock(b, i, sink, l, conf) and
-      not exists(int j | barrierBlock(b, j, l, conf) and j <= i)
+      not exists(int j | perforatedBlock(b, j, l, conf) and j <= i) and
+      not exists(int j | cutBlock(b, j, l, conf) and j < i)
     )
   }
 
+  /** Holds if a source can flow to the entry node for `b`. */
   private predicate flowFwdEntry(BasicBlock b, Label l, Configuration conf) {
     exists(BasicBlock mid |
       flowFwdExit(mid, l, conf) and
@@ -123,23 +142,32 @@ module ControlFlow {
     )
   }
 
+  /** Holds if a source can flow to the exit node for `b`. */
   private predicate flowFwdExit(BasicBlock b, Label l, Configuration conf) {
     stepSrcToExit(b, _, l, conf)
     or
     flowFwdEntry(b, l, conf) and
-    not barrierBlock(b, _, l, conf)
+    not barrierBlock(b, l, conf)
   }
 
+  /**
+   * Holds if the entry node for `b` can flow to a sink.
+   * We demand also that a source can flow to the entry node for `b`.
+   */
   private predicate flowRevEntry(BasicBlock b, Label l, Configuration conf) {
     flowFwdEntry(b, l, conf) and
     (
       stepEntryToSink(b, _, l, conf)
       or
       flowRevExit(b, l, conf) and
-      not barrierBlock(b, _, l, conf)
+      not barrierBlock(b, l, conf)
     )
   }
 
+  /**
+   * Holds if the exit node for `b` can flow to a sink.
+   * We demand also that a source can flow to the exit node for `b`.
+   */
   private predicate flowRevExit(BasicBlock b, Label l, Configuration conf) {
     flowFwdExit(b, l, conf) and
     exists(BasicBlock mid |
@@ -204,7 +232,8 @@ module ControlFlow {
         sinkBlock(b, j, sink, l, conf) and
         i <= j and
         result = TPathNodeSink(sink, l, conf) and
-        not exists(int k | barrierBlock(b, k, l, conf) and i <= k and k <= j)
+        not exists(int k | perforatedBlock(b, k, l, conf) and i <= k and k <= j) and
+        not exists(int k | cutBlock(b, k, l, conf) and i <= k and k < j)
       )
     }
   }
@@ -240,7 +269,7 @@ module ControlFlow {
 
     override PathNode getASuccessor() {
       result = TPathNodeMidExit(b, l, conf) and
-      not barrierBlock(b, _, l, conf)
+      not barrierBlock(b, l, conf)
       or
       exists(Node sink |
         stepEntryToSink(b, sink, l, conf) and
