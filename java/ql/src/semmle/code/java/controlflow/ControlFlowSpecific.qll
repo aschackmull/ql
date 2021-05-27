@@ -15,9 +15,46 @@ module Private {
   }
 
   Callable getEnclosingCallable(Node n) { n.getEnclosingCallable() = result }
+
+  class Split extends TSplit {
+    abstract string toString();
+
+    abstract predicate entry(Node n1, Node n2);
+
+    abstract predicate exit(Node n1, Node n2);
+
+    abstract predicate blocked(Node n1, Node n2);
+  }
 }
 
 private import Private
+
+private newtype TSplit =
+  TSplitFinally(J::BlockStmt finally) { exists(J::TryStmt try | try.getFinally() = finally) }
+
+private class SplitFinally extends Split, TSplitFinally {
+  J::BlockStmt finally;
+
+  SplitFinally() { this = TSplitFinally(finally) }
+
+  override string toString() { result = "split finally" }
+
+  override predicate entry(Node n1, Node n2) {
+    n1.getAnExceptionSuccessor() = n2 and
+    n2 = finally
+  }
+
+  private predicate leaving(Node n1, Node n2, boolean exceptionedge) {
+    n1.getASuccessor() = n2 and
+    n1.getEnclosingStmt().getEnclosingStmt*() = finally and
+    not n2.getEnclosingStmt().getEnclosingStmt*() = finally and
+    if n1.getAnExceptionSuccessor() = n2 then exceptionedge = true else exceptionedge = false
+  }
+
+  override predicate exit(Node n1, Node n2) { this.leaving(n1, n2, _) }
+
+  override predicate blocked(Node n1, Node n2) { this.leaving(n1, n2, false) }
+}
 
 private newtype TLabel =
   TLabelUnit() or
