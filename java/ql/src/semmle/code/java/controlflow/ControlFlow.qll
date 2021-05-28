@@ -86,9 +86,7 @@ module ControlFlow {
    */
 
   /** Entry points for control-flow. */
-  private predicate flowEntry(BasicBlock entry) {
-    flowEntry(_, entry.getFirstNode())
-  }
+  private predicate flowEntry(BasicBlock entry) { flowEntry(_, entry.getFirstNode()) }
 
   /** The successor relation for basic blocks. */
   private predicate bbSucc(BasicBlock pre, BasicBlock post) { post = pre.getASuccessor() }
