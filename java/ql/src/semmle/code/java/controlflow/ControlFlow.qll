@@ -127,8 +127,8 @@ module ControlFlow {
     conf.isBarrier(b.getNode(i), l)
     or
     conf.isBarrierEdge(b.getNode(i - 1), b.getNode(i), l)
-    or
-    barrierCall(b.getNode(i), l, conf)
+    // or
+    // barrierCall(b.getNode(i), l, conf)
   }
 
   private predicate barrierEdge(BasicBlock b1, BasicBlock b2, Label l, Configuration conf) {
