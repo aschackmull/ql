@@ -87,7 +87,7 @@ module ControlFlow {
 
   /** Entry points for control-flow. */
   private predicate flowEntry(BasicBlock entry) {
-    exists(getEnclosingCallable(entry.getFirstNode()))
+    flowEntry(_, entry.getFirstNode())
   }
 
   /** The successor relation for basic blocks. */
@@ -348,16 +348,16 @@ module ControlFlow {
    * We require that `call` has a unique call target.
    */
   private predicate barrierCall(CallNode call, Label l, Configuration conf) {
-    exists(Callable target |
-      callTargetUniq(call, target) and
-      barrierCallable(target, l, conf)
+    exists(Callable c2, Label l2 |
+      callTargetUniq(_, l, call, c2, l2, conf) and
+      barrierCallable(c2, l2, conf)
     )
   }
 
   /** Holds if a barrier dominates the exit of the callable. */
   private predicate barrierDominatesExit(Callable callable, Label l, Configuration conf) {
     exists(BasicBlock exit |
-      exit.getLastNode() = callable and
+      flowExit(callable, exit.getLastNode()) and
       barrierBlock(l, conf).dominates(exit)
     )
   }
@@ -366,7 +366,7 @@ module ControlFlow {
   private BasicBlock nonDominatingBarrierBlock(Label l, Configuration conf) {
     exists(BasicBlock exit |
       result = barrierBlock(l, conf) and
-      exit.getLastNode() = result.getEnclosingCallable() and
+      flowExit(result.getEnclosingCallable(), exit.getLastNode()) and
       not result.dominates(exit)
     )
   }
