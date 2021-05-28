@@ -1,5 +1,7 @@
 private import java as J
 private import semmle.code.java.dispatch.VirtualDispatch as VD
+private import semmle.code.java.dataflow.SSA as SSA
+private import semmle.code.java.controlflow.Guards as G
 
 module Private {
   predicate edge(Node n1, Node n2) { n1.getASuccessor() = n2 }
@@ -32,7 +34,10 @@ module Private {
 private import Private
 
 private newtype TSplit =
-  TSplitFinally(J::BlockStmt finally) { exists(J::TryStmt try | try.getFinally() = finally) }
+  TSplitFinally(J::BlockStmt finally) { exists(J::TryStmt try | try.getFinally() = finally) } or
+  TSplitBoolean(SSA::SsaVariable v, boolean branch) {
+    2 <= strictcount(J::RValue use | boolGuard(v, use, branch, _))
+  }
 
 private class SplitFinally extends Split, TSplitFinally {
   J::BlockStmt finally;
@@ -58,6 +63,34 @@ private class SplitFinally extends Split, TSplitFinally {
   override predicate exit(Node n1, Node n2) { this.leaving(n1, n2, _) }
 
   override predicate blocked(Node n1, Node n2) { this.leaving(n1, n2, false) }
+}
+
+private predicate boolGuard(SSA::SsaVariable v, J::RValue use, boolean branch, Node succ) {
+  exists(G::ConditionBlock cb |
+    v.getAUse() = use and
+    cb.getCondition() = use and
+    succ = cb.getTestSuccessor(branch)
+  )
+}
+
+private class SplitBoolean extends Split, TSplitBoolean {
+  SSA::SsaVariable v;
+  boolean branch;
+
+  SplitBoolean() { this = TSplitBoolean(v, branch) }
+
+  override string toString() { result = "split " + v.toString() + " = " + branch }
+
+  override J::Location getLocation() { result = v.getLocation()}
+
+  private predicate liveBlock(J::BasicBlock bb) {
+    v.isLiveAtEndOfBlock(bb) or
+    boolGuard(v, bb.getLastNode(), _, _)
+  }
+
+  override predicate entry(Node n1, Node n2) {}
+  override predicate exit(Node n1, Node n2) {}
+  override predicate blocked(Node n1, Node n2) { boolGuard(v, n1, branch.booleanNot(), n2)}
 }
 
 private newtype TLabel =
