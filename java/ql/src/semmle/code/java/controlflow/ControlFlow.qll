@@ -390,7 +390,7 @@ module ControlFlow {
     barrierDominatesExit(callable, l, conf)
     or
     exists(BasicBlock exit |
-      exit.getLastNode() = callable and
+      flowExit(callable, exit.getLastNode()) and
       postBarrierBlock(exit, l, conf)
     )
   }
