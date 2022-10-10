@@ -40,6 +40,12 @@ Callable viableCallable(Call c) {
   c instanceof ConstructorCall and result = c.getCallee().getSourceDeclaration()
 }
 
+Callable viableCallable_v2(Call c) {
+  result = viableImpl_v2(c)
+  or
+  c instanceof ConstructorCall and result = c.getCallee().getSourceDeclaration()
+}
+
 /** The source declaration of a method that is the target of a virtual call. */
 class VirtCalledSrcMethod extends SrcMethod {
   pragma[nomagic]

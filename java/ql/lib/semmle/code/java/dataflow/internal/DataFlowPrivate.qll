@@ -398,7 +398,15 @@ predicate lambdaCreation(Node creation, LambdaCallKind kind, DataFlowCallable c)
     c.asCallable().(Method).overridesOrInstantiates+(pragma[only_bind_into](kind)) and
     pragma[only_bind_into](kind) = interface.getRunMethod().getSourceDeclaration()
   )
+  or
+  exists(MethodAccess ma |
+    DispatchFlow::dispatchOrigin(creation.asExpr(), ma, c.asCallable())
+    and
+    kind = ma.getMethod()
+  )
 }
+
+  private import semmle.code.java.dispatch.DispatchFlow as DispatchFlow
 
 /** Holds if `call` is a lambda call of kind `kind` where `receiver` is the lambda expression. */
 predicate lambdaCall(DataFlowCall call, LambdaCallKind kind, Node receiver) {
@@ -408,6 +416,13 @@ predicate lambdaCall(DataFlowCall call, LambdaCallKind kind, Node receiver) {
       .(FunctionalInterface)
       .getRunMethod()
       .getSourceDeclaration() = kind
+  or
+  exists(MethodAccess ma |
+    DispatchFlow::dispatchOrigin(_, ma, _) and
+    receiver = getInstanceArgument(ma) and
+    call.asCall() = ma and
+    kind = ma.getMethod()
+  )
 }
 
 /** Extra data-flow steps needed for lambda flow analysis. */

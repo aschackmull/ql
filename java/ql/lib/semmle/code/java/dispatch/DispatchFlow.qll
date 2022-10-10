@@ -97,10 +97,17 @@ private predicate trackedMethodOnType(Method m, SrcRefType t) {
  * by the type constructed by `cie`. Thus the dispatch from `ma` to `m` will
  * only be included if `cie` flows to the qualifier of `ma`.
  */
-private predicate dispatchOrigin(ClassInstanceExpr cie, MethodAccess ma, Method m) {
+// private
+ predicate dispatchOrigin(ClassInstanceExpr cie, MethodAccess ma, Method m) {
   m = viableImpl_inp(ma) and
   not m = ma.getMethod().getSourceDeclaration() and
   trackedMethodOnType(m, cie.getConstructedType().getSourceDeclaration())
+}
+
+predicate checkMa(MethodAccess ma, int tgts, int trackedTgts, int untracked) {
+  tgts = strictcount(Method m | m = viableImpl_inp(ma)) and
+  trackedTgts = strictcount(Method m | dispatchOrigin(_, ma, m))
+  and untracked = tgts - trackedTgts
 }
 
 /** Holds if `t` is a type that is relevant for dispatch flow. */

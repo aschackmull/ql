@@ -161,6 +161,199 @@ private module LambdaFlow {
     )
   }
 
+  predicate lambdaFlowStats(int srcs, int sinks, int nodes, int tuples, int dispatch, int disptuples) {
+    srcs = strictcount(Node creation | lambdaCreation(creation, _, _)) and
+    sinks = strictcount(Node receiver | lambdaCall(_, _, receiver)) and
+    nodes = strictcount(Node node | revLambdaFlow0(_, _, node, _, _, _, _)) and
+    tuples =
+      strictcount(DataFlowCall lambdaCall, LambdaCallKind kind, Node node, DataFlowType t,
+        boolean toReturn, boolean toJump, DataFlowCallOption lastCall |
+        revLambdaFlow0(lambdaCall, kind, node, t, toReturn, toJump, lastCall)
+      ) and
+    dispatch = count(DataFlowCallable tgt, DataFlowCall call | tgt = viableCallableLambda(call, _)) and
+    disptuples =
+      count(DataFlowCallable tgt, DataFlowCall call, DataFlowCallOption lastCall |
+        tgt = viableCallableLambda(call, lastCall)
+      )
+  }
+
+  predicate lambdaFlowStats2(int srcs, int sinks, int nodes, int tuples, int sinktrack, int typetrack, int calltrack, int dispatch, int disptuples) {
+    srcs = strictcount(Node creation | lambdaCreation(creation, _, _)) and
+    sinks = strictcount(Node receiver | lambdaCall(_, _, receiver)) and
+    nodes = strictcount(Node node | revLambdaFlow0(_, _, node, _, _, _, _)) and
+    tuples =
+      strictcount(DataFlowCall lambdaCall, LambdaCallKind kind, Node node, DataFlowType t,
+        boolean toReturn, boolean toJump, DataFlowCallOption lastCall |
+        revLambdaFlow0(lambdaCall, kind, node, t, toReturn, toJump, lastCall)
+      ) and
+    sinktrack =
+      strictcount(DataFlowCall lambdaCall, LambdaCallKind kind, Node node |
+        revLambdaFlow0(lambdaCall, kind, node, _, _, _, _)
+      ) and
+    typetrack =
+      strictcount(Node node, DataFlowType t |
+        revLambdaFlow0(_, _, node, t, _, _, _)
+      ) and
+    calltrack =
+      strictcount(Node node, DataFlowCallOption lastCall |
+        revLambdaFlow0(_, _, node, _, _, _, lastCall)
+      ) and
+    dispatch = count(DataFlowCallable tgt, DataFlowCall call | tgt = viableCallableLambda(call, _)) and
+    disptuples =
+      count(DataFlowCallable tgt, DataFlowCall call, DataFlowCallOption lastCall |
+        tgt = viableCallableLambda(call, lastCall)
+      )
+  }
+
+  module LambdaPruning {
+    DataFlowCallable approx_viableCallableLambda(DataFlowCall call) {
+      exists(LambdaCallKind kind |
+        lambdaCall(call, kind, _) and
+        lambdaCreation(_, kind, result)
+      )
+    }
+    pragma[noinline]
+    private predicate approx_viableParamLambda(DataFlowCall call, ParameterPosition ppos, ParamNode p) {
+      p.isParameterOf(approx_viableCallableLambda(call), ppos)
+    }
+    private predicate approx_viableParamArgLambda(DataFlowCall call, ParamNode p, ArgNode arg) {
+      exists(ParameterPosition ppos |
+        approx_viableParamLambda(call, ppos, p) and
+        argumentPositionMatch(call, arg, ppos)
+      )
+    }
+
+
+    pragma[nomagic]
+    private TReturnPositionSimple approx_viableReturnPosLambda( DataFlowCall call, ReturnKind kind) {
+      result = TReturnPositionSimple0(approx_viableCallableLambda(call), kind)
+    }
+    private predicate approx_viableReturnPosOutLambda(
+      DataFlowCall call, TReturnPositionSimple pos, OutNode out
+    ) {
+      exists(ReturnKind kind |
+        pos = approx_viableReturnPosLambda(call, kind) and
+        out = getAnOutNode(call, kind)
+      )
+    }
+
+
+    predicate lflow(Node node, boolean toReturn) {
+      lambdaCall(_, _, node) and toReturn = false
+      or
+      // local flow
+      exists(Node mid |
+        lflow(mid, toReturn)
+      |
+        simpleLocalFlowStep(node, mid)
+        or
+        additionalLambdaFlowStep(node, mid, _) and
+        getNodeEnclosingCallable(node) = getNodeEnclosingCallable(mid)
+      )
+      or
+      // jump step
+      exists(Node mid |
+        lflow(mid, _) and toReturn = false
+      |
+        jumpStepCached(node, mid)
+        or
+        additionalLambdaFlowStep(node, mid, _) and
+        getNodeEnclosingCallable(node) != getNodeEnclosingCallable(mid)
+      )
+      or
+      // flow into a callable
+      exists(ParamNode p |
+        lflow(p, false) and toReturn = false
+      |
+        viableParamArgNonLambda(_, p, node)
+        or
+        approx_viableParamArgLambda(_, p, node) // non-linear recursion
+      )
+      or
+      // flow out of a callable
+      exists(TReturnPositionSimple pos |
+        lflowOut(pos) and
+        getReturnPositionSimple(node, node.(ReturnNode).getKind()) = pos and
+        toReturn = true
+      )
+    }
+
+    pragma[nomagic]
+    predicate lflowOutLambdaCall( OutNode out, DataFlowCall call) {
+      lflow(out, _) and
+      exists(ReturnKindExt rk |
+        out = rk.getAnOutNode(call) and
+        lambdaCall(call, _, _)
+      )
+    }
+
+    pragma[nomagic]
+    predicate lflowOut( TReturnPositionSimple pos) {
+      exists(DataFlowCall call, OutNode out |
+        lflow(out, _) and
+        viableReturnPosOutNonLambda(call, pos, out)
+        or
+        // non-linear recursion
+        lflowOutLambdaCall(out, call) and
+        approx_viableReturnPosOutLambda(call, pos, out)
+      )
+    }
+
+    predicate flowflow(Node node) {
+      lflow(node, _) and lflow2(node, _)
+    }
+
+    predicate lflow2(Node node, boolean fromArg) {
+      lambdaCreation(node, _, _) and fromArg = false
+      or
+      // local flow
+      exists(Node mid |
+        lflow2(mid, fromArg)
+      |
+        simpleLocalFlowStep(mid, node)
+        or
+        additionalLambdaFlowStep(mid, node, _) and
+        getNodeEnclosingCallable(node) = getNodeEnclosingCallable(mid)
+      )
+      or
+      // jump step
+      exists(Node mid |
+        lflow2(mid, _) and fromArg = false
+      |
+        jumpStepCached(mid, node)
+        or
+        additionalLambdaFlowStep(mid, node, _) and
+        getNodeEnclosingCallable(node) != getNodeEnclosingCallable(mid)
+      )
+      or
+      // flow into a callable
+      exists(ArgNode arg |
+        lflow2(arg, _) and fromArg = true
+        |
+        viableParamArgNonLambda(_, node, arg)
+        or
+        approx_viableParamArgLambda(_, node, arg)
+      )
+      or
+      // flow out of a callable
+      exists(TReturnPositionSimple pos |
+        lflow2Out(pos) and fromArg = false
+        |
+        viableReturnPosOutNonLambda(_, pos, node)
+        or
+        approx_viableReturnPosOutLambda(_, pos, node)
+
+      )
+    }
+
+    predicate lflow2Out(TReturnPositionSimple pos) {
+      exists(ReturnNode ret |
+        lflow2(ret, false) and
+        getReturnPositionSimple(ret, ret.getKind()) = pos
+      )
+    }
+  }
+
   /**
    * Holds if data can flow (inter-procedurally) from `node` (of type `t`) to
    * the lambda call `lambdaCall`.
@@ -178,6 +371,7 @@ private module LambdaFlow {
     DataFlowCall lambdaCall, LambdaCallKind kind, Node node, DataFlowType t, boolean toReturn,
     boolean toJump, DataFlowCallOption lastCall
   ) {
+    LambdaPruning::flowflow(node) and
     revLambdaFlow0(lambdaCall, kind, node, t, toReturn, toJump, lastCall) and
     if castNode(node) or node instanceof ArgNode or node instanceof ReturnNode
     then compatibleTypes(t, getNodeDataFlowType(node))
@@ -396,10 +590,11 @@ private module Cached {
    */
   cached
   DataFlowCallable viableCallableLambda(DataFlowCall call, DataFlowCallOption lastCall) {
-    exists(Node creation, LambdaCallKind kind |
-      LambdaFlow::revLambdaFlow(call, kind, creation, _, _, _, lastCall) and
-      lambdaCreation(creation, kind, result)
-    )
+    none()
+    // exists(Node creation, LambdaCallKind kind |
+    //   LambdaFlow::revLambdaFlow(call, kind, creation, _, _, _, lastCall) and
+    //   lambdaCreation(creation, kind, result)
+    // )
   }
 
   /**

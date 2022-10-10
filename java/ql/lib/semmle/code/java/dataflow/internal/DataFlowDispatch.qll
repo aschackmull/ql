@@ -19,8 +19,11 @@ private module DispatchImpl {
     )
   }
 
+  private import semmle.code.java.dispatch.DispatchFlow as DispatchFlow
+
   private Callable sourceDispatch(Call c) {
     result = VirtualDispatch::viableCallable(c) and
+    not DispatchFlow::dispatchOrigin(_, c, result) and
     if VirtualDispatch::lowConfidenceDispatchTarget(c, result)
     then not hasHighConfidenceTarget(c)
     else any()
