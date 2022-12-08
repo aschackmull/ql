@@ -632,7 +632,7 @@ private predicate hasDispatchFlow(MethodAccess ma, Method m) {
 //   )
 // }
 // module TT1 {
-// Method noDisp(MethodAccess ma) { none() }
+Method noDisp(MethodAccess ma) { none() }
 Method n(MethodAccess ma) { none() }
 
 // module TTI1 = TrackLambda<noDisp/1>;
@@ -676,22 +676,22 @@ module Disp6 {
   pragma[nomagic]
   Method d(MethodAccess ma) { result = lambdaDispatch(ma) }
 }
-// predicate disp1 = TrackLambda<noDisp/1>::lambdaDispatch/1;
-// predicate disp2 = TrackLambda<disp1/1>::lambdaDispatch/1;
-// predicate disp3 = TrackLambda<disp2/1>::lambdaDispatch/1;
-// predicate disp4 = TrackLambda<disp3/1>::lambdaDispatch/1;
-// predicate disp5 = TrackLambda<disp4/1>::lambdaDispatch/1;
-// predicate disp6 = TrackLambda<disp5/1>::lambdaDispatch/1;
-predicate disp1 = Disp1::d/1;
+predicate disp1 = TrackLambda<noDisp/1>::lambdaDispatch/1;
+predicate disp2 = TrackLambda<disp1/1>::lambdaDispatch/1;
+predicate disp3 = TrackLambda<disp2/1>::lambdaDispatch/1;
+predicate disp4 = TrackLambda<disp3/1>::lambdaDispatch/1;
+predicate disp5 = TrackLambda<disp4/1>::lambdaDispatch/1;
+predicate disp6 = TrackLambda<disp5/1>::lambdaDispatch/1;
+// predicate disp1 = Disp1::d/1;
 
-predicate disp2 = Disp2::d/1;
+// predicate disp2 = Disp2::d/1;
 
-predicate disp3 = Disp3::d/1;
+// predicate disp3 = Disp3::d/1;
 
-predicate disp4 = Disp4::d/1;
+// predicate disp4 = Disp4::d/1;
 
-predicate disp5 = Disp5::d/1;
-predicate disp6 = Disp6::d/1;
+// predicate disp5 = Disp5::d/1;
+// predicate disp6 = Disp6::d/1;
 predicate countdisp(int d1, int d2, int d3, int d4
   , int d5, int d6) {
   d1 = strictcount(MethodAccess ma, Method m | m = disp1(ma)) and
@@ -711,7 +711,7 @@ predicate countdisp(int d1, int d2, int d3, int d4
 //   notok = count(MethodAccess ma, Method m | m = tt1_disp(ma) and not m = lamDisp(ma))
 // }
 predicate hist_(int calls, int tgts) {
-  calls = strictcount(MethodAccess ma | tgts = strictcount(Method m | m = disp4(ma)))
+  calls = strictcount(MethodAccess ma | tgts = strictcount(Method m | m = disp6(ma)))
 }
 
 // }
