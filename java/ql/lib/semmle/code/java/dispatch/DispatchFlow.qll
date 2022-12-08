@@ -259,7 +259,7 @@ private predicate flowStep(RelevantNode n1, RelevantNode n2) {
   )
 }
 
-module TypeTrackingSteps {
+private module TypeTrackingSteps {
   class Node = RelevantNode;
 
   class LocalSourceNode extends RelevantNode {
@@ -429,14 +429,18 @@ module TypeTrackingSteps {
   predicate hasFeatureBacktrackStoreTarget() { none() }
 }
 
-signature Method methodDispatchSig(MethodAccess ma);
+private predicate lambdaSource(RelevantNode n) { dispatchOrigin(n.asExpr(), _, _) }
 
-module MkTypeTrackingSteps<methodDispatchSig/1 lambdaDispatch> implements TypeTrackingInput {
-  import TypeTrackingSteps
+private predicate lambdaSink(RelevantNode n) {
+  exists(MethodAccess ma | dispatchOrigin(_, ma, _) | n = DataFlow::getInstanceArgument(ma))
+}
 
+private signature Method methodDispatchSig(MethodAccess ma);
+
+private module TrackLambda<methodDispatchSig/1 lambdaDispatch0> {
   private Callable dispatch(Call c) {
     result = dispatchCand(c) or
-    result = lambdaDispatch(c)
+    result = lambdaDispatch0(c)
   }
 
   /**
@@ -462,18 +466,116 @@ module MkTypeTrackingSteps<methodDispatchSig/1 lambdaDispatch> implements TypeTr
     )
   }
 
-  predicate callStep(Node n1, LocalSourceNode n2) { argParamCand(n1, n2) }
+  private module TtInput implements TypeTrackingInput {
+    import TypeTrackingSteps
 
-  predicate returnStep(Node n1, LocalSourceNode n2) {
-    exists(ReturnStmt ret, Method m |
-      ret.getEnclosingCallable() = m and
-      ret.getResult() = n1.asExpr() and
-      m = dispatch(n2.asExpr())
+    predicate callStep(Node n1, LocalSourceNode n2) { argParamCand(n1, n2) }
+
+    predicate returnStep(Node n1, LocalSourceNode n2) {
+      exists(ReturnStmt ret, Method m |
+        ret.getEnclosingCallable() = m and
+        ret.getResult() = n1.asExpr() and
+        m = dispatch(n2.asExpr())
+      )
+    }
+  }
+
+  private import TypeTracking<TtInput>::TypeTrack<lambdaSource/1>::Graph<lambdaSink/1>
+
+  private predicate edgePlus(PathNode n1, PathNode n2) = fastTC(edges/2)(n1, n2)
+
+  private predicate pairCand(PathNode p1, PathNode p2, Method m, MethodAccess ma) {
+    exists(ClassInstanceExpr cie |
+      dispatchOrigin(cie, ma, m) and
+      p1.getNode() = DataFlow::exprNode(cie) and
+      p2.getNode() = DataFlow::getInstanceArgument(ma) and
+      p1.isSource() and
+      p2.isSink()
     )
+  }
+
+  Method lambdaDispatch(MethodAccess ma) {
+    exists(PathNode p1, PathNode p2 |
+      (p1 = p2 or edgePlus(p1, p2)) and
+      pairCand(p1, p2, result, ma)
+    )
+  }
+
+  predicate flow(PathNode p1, PathNode p2, Method m, MethodAccess ma, int grp2) {
+    (p1 = p2 or edgePlus(p1, p2)) and
+    pairCand(p1, p2, m, ma) and
+    // grp1 = clls(m) and
+    grp2 = tgts(ma)
+  }
+
+  // predicate flow62_2(PathNode p1, PathNode p2, Method m, MethodAccess ma) {
+  //   flow(p1, p2, m, ma, 62, 2)
+  // }
+
+
+  /*
+  lam ---> qual.m
+
+  disp: qual.m -> lam
+
+  */
+
+  int tgts(MethodAccess ma) { result = strictcount(Method m | m = lambdaDispatch(ma)) }
+
+  int clls(Method m) { result = strictcount(MethodAccess ma | m = lambdaDispatch(ma)) }
+
+  module PathProp2 {
+    newtype TNode2 =
+      TN(PathNode n) or
+      TCall(MethodAccess ma)
+      // TCall(MethodAccess ma) { flow(_, _, _, ma, _) }
+  // //     TGrpSrc(int grp) { flow(_, _, _, _, grp, _) } or
+  // //     TGrpSink(int grp) { flow(_, _, _, _, _, grp) }
+
+  //   class Node2 extends TNode2 {
+  //     PathNode getANode() { this = TN(result) }
+  //     MethodAccess getACall() { this = TCall(result) }
+
+  // //     int getGrpSrc() { this = TGrpSrc(result) }
+
+  // //     int getGrpSink() { this = TGrpSink(result) }
+
+  //     string toString() {
+  //       result = getANode().toString() or
+  //       result = getACall().toString()
+  //       // result = "src" + getGrpSrc() or
+  //       // result = "sink" + getGrpSink()
+  //     }
+
+  //     predicate hasLocationInfo(
+  //       string filepath, int startline, int startcolumn, int endline, int endcolumn
+  //     ) {
+  //       getANode().getNode().hasLocationInfo(filepath, startline, startcolumn, endline, endcolumn)
+  //       or
+  //       getACall().hasLocationInfo(filepath, startline, startcolumn, endline, endcolumn)
+  // //       (exists(getGrpSrc()) or exists(getGrpSink())) and
+  // //       filepath = "" and
+  // //       startline = 0 and
+  // //       startcolumn = 0 and
+  // //       endline = 0 and
+  // //       endcolumn = 0
+  //     }
+  //   }
+
+  //   predicate edge(Node2 a, Node2 b) {
+  //     edges(a.getANode(), b.getANode()) or
+  //     flow(b.getANode(), _, _, a.getACall(), _)
+  // //     flow(_, a.getANode(), _, _, _, b.getGrpSink()) or
+  // //     flow(b.getANode(), _, _, _, a.getGrpSrc(), _)
+  //   }
+
+  //   predicate flow2(Node2 src, Node2 sink, Method m, MethodAccess ma, int tgts) {
+  //     flow(_, sink.getANode(), m, ma, tgts) and ma = src.getACall()
+  // //     flow(_, _, m, ma, src.getGrpSrc(), sink.getGrpSink())
+  //   }
   }
 }
 
-// predicate countsteps(int i) { i = strictcount(RelevantNode n1, RelevantNode n2 | flowStep(n1, n2)) }
 /**
  * Holds if `n` is forward-reachable from a relevant `ClassInstanceExpr`.
  */
@@ -529,97 +631,115 @@ private predicate hasDispatchFlow(MethodAccess ma, Method m) {
 //     TT1::flowPair(exprNode(cie), getInstanceArgument(ma))
 //   )
 // }
-predicate ttSource(RelevantNode n) { dispatchOrigin(n.asExpr(), _, _) }
+// module TT1 {
+// Method noDisp(MethodAccess ma) { none() }
+Method n(MethodAccess ma) { none() }
 
-predicate ttSink(RelevantNode n) {
-  exists(MethodAccess ma | dispatchOrigin(_, ma, _) | n = DataFlow::getInstanceArgument(ma))
+// module TTI1 = TrackLambda<noDisp/1>;
+module Disp1 {
+  import TrackLambda<n/1>
+
+  pragma[nomagic]
+  Method d(MethodAccess ma) { result = lambdaDispatch(ma) }
 }
 
-module TT1 {
-  Method noDisp(MethodAccess ma) { none() }
+module Disp2 {
+  import TrackLambda<Disp1::d/1>
 
-  module TTI1 = MkTypeTrackingSteps<noDisp/1>;
-
-  import TypeTracking<TTI1>::TypeTrack<ttSource/1>::Graph<ttSink/1>
-
-  module Consist = TypeTracking<TTI1>::ConsistencyChecks;
-
-  predicate pppp = Consist::unreachableNode/1;
-
-  predicate pppp2 = Consist::nonSourceStoreTarget/1;
-
-  // predicate flow(PathNode p1, PathNode p2, MethodAccess ma, Method m) {
-  //   flowPair(p1, p2) and
-  //   exists(ClassInstanceExpr cie |
-  //     dispatchOrigin(cie, ma, m) and
-  //     p1.getNode() = exprNode(cie) and
-  //     p2.getNode() = getInstanceArgument(ma)
-  //   )
-  // }
-  predicate edgePlus(PathNode n1, PathNode n2) = fastTC(edges/2)(n1, n2)
-
-  predicate flow(PathNode p1, PathNode p2, MethodAccess ma, Method m) {
-    (p1 = p2 or edgePlus(p1, p2)) and
-    pairCand(p1, p2, ma, m)
-  }
-
-  predicate pairCand(PathNode p1, PathNode p2, MethodAccess ma, Method m) {
-    exists(ClassInstanceExpr cie |
-      dispatchOrigin(cie, ma, m) and
-      p1.getNode() = DataFlow::exprNode(cie) and
-      p2.getNode() = DataFlow::getInstanceArgument(ma) and
-      p1.isSource() and
-      p2.isSink()
-    )
-  }
-
-  Method tt1_disp(MethodAccess ma) {
-    result = viableImpl_inp(ma) and
-    flow(_, _, ma, result)
-  }
-
-  predicate countdispatch(int i, int notok) {
-    i = strictcount(MethodAccess ma, Method m | m = tt1_disp(ma)) and
-    notok = count(MethodAccess ma, Method m | m = tt1_disp(ma) and not m = lamDisp(ma))
-  }
-
-  predicate hist_(int calls, int tgts) {
-    calls = strictcount(MethodAccess ma | tgts = strictcount(Method m | m = tt1_disp(ma)))
-  }
+  pragma[nomagic]
+  Method d(MethodAccess ma) { result = lambdaDispatch(ma) }
 }
 
-module TT2 {
-  Method disp(MethodAccess ma) { result = TT1::tt1_disp(ma) }
+module Disp3 {
+  import TrackLambda<Disp2::d/1>
 
-  module TTI2 = MkTypeTrackingSteps<disp/1>;
-
-  import TypeTracking<TTI2>::TypeTrack<ttSource/1>::Graph<ttSink/1>
-
-  predicate flow(PathNode p1, PathNode p2, MethodAccess ma, Method m) {
-    flowPair(p1, p2) and
-    exists(ClassInstanceExpr cie |
-      dispatchOrigin(cie, ma, m) and
-      p1.getNode() = DataFlow::exprNode(cie) and
-      p2.getNode() = DataFlow::getInstanceArgument(ma)
-    )
-  }
-
-  Method tt2_disp(MethodAccess ma) {
-    result = viableImpl_inp(ma) and
-    flow(_, _, ma, result)
-  }
-
-  predicate countdispatch(int i, int notok) {
-    i = strictcount(MethodAccess ma, Method m | m = tt2_disp(ma)) and
-    notok = count(MethodAccess ma, Method m | m = tt2_disp(ma) and not m = lamDisp(ma))
-  }
-
-  predicate hist_(int calls, int tgts) {
-    calls = strictcount(MethodAccess ma | tgts = strictcount(Method m | m = tt2_disp(ma)))
-  }
+  pragma[nomagic]
+  Method d(MethodAccess ma) { result = lambdaDispatch(ma) }
 }
 
-predicate countdisp(int inp, int out, int removed, int irr, int has, int has2) {
+module Disp4 {
+  import TrackLambda<Disp3::d/1>
+
+  pragma[nomagic]
+  Method d(MethodAccess ma) { result = lambdaDispatch(ma) }
+
+  // predicate fff = flow62_2/4;
+}
+
+module Disp5 {
+  import TrackLambda<Disp4::d/1>
+  pragma[nomagic]
+  Method d(MethodAccess ma) { result = lambdaDispatch(ma) }
+}
+module Disp6 {
+  import TrackLambda<Disp5::d/1>
+  pragma[nomagic]
+  Method d(MethodAccess ma) { result = lambdaDispatch(ma) }
+}
+// predicate disp1 = TrackLambda<noDisp/1>::lambdaDispatch/1;
+// predicate disp2 = TrackLambda<disp1/1>::lambdaDispatch/1;
+// predicate disp3 = TrackLambda<disp2/1>::lambdaDispatch/1;
+// predicate disp4 = TrackLambda<disp3/1>::lambdaDispatch/1;
+// predicate disp5 = TrackLambda<disp4/1>::lambdaDispatch/1;
+// predicate disp6 = TrackLambda<disp5/1>::lambdaDispatch/1;
+predicate disp1 = Disp1::d/1;
+
+predicate disp2 = Disp2::d/1;
+
+predicate disp3 = Disp3::d/1;
+
+predicate disp4 = Disp4::d/1;
+
+predicate disp5 = Disp5::d/1;
+predicate disp6 = Disp6::d/1;
+predicate countdisp(int d1, int d2, int d3, int d4
+  , int d5, int d6) {
+  d1 = strictcount(MethodAccess ma, Method m | m = disp1(ma)) and
+  d2 = strictcount(MethodAccess ma, Method m | m = disp2(ma)) and
+  d3 = strictcount(MethodAccess ma, Method m | m = disp3(ma)) and
+  d4 = strictcount(MethodAccess ma, Method m | m = disp4(ma))
+  and
+  d5 = strictcount(MethodAccess ma, Method m | m = disp5(ma)) and
+  d6 = strictcount(MethodAccess ma, Method m | m = disp6(ma))
+}
+
+// Method tt1_disp(MethodAccess ma) {
+//   result = TTI1::lambdaDispatch(ma)
+// }
+// predicate countdispatch(int i, int notok) {
+//   i = strictcount(MethodAccess ma, Method m | m = tt1_disp(ma)) and
+//   notok = count(MethodAccess ma, Method m | m = tt1_disp(ma) and not m = lamDisp(ma))
+// }
+predicate hist_(int calls, int tgts) {
+  calls = strictcount(MethodAccess ma | tgts = strictcount(Method m | m = disp4(ma)))
+}
+
+// }
+// module TT2 {
+//   Method disp(MethodAccess ma) { result = TT1::tt1_disp(ma) }
+//   module TTI2 = MkTypeTrackingSteps<disp/1>;
+//   import TypeTracking<TTI2>::TypeTrack<ttSource/1>::Graph<ttSink/1>
+//   predicate flow(PathNode p1, PathNode p2, MethodAccess ma, Method m) {
+//     hasFlow(p1, p2) and
+//     exists(ClassInstanceExpr cie |
+//       dispatchOrigin(cie, ma, m) and
+//       p1.getNode() = DataFlow::exprNode(cie) and
+//       p2.getNode() = DataFlow::getInstanceArgument(ma)
+//     )
+//   }
+//   Method tt2_disp(MethodAccess ma) {
+//     result = viableImpl_inp(ma) and
+//     flow(_, _, ma, result)
+//   }
+//   predicate countdispatch(int i, int notok) {
+//     i = strictcount(MethodAccess ma, Method m | m = tt2_disp(ma)) and
+//     notok = count(MethodAccess ma, Method m | m = tt2_disp(ma) and not m = lamDisp(ma))
+//   }
+//   predicate hist_(int calls, int tgts) {
+//     calls = strictcount(MethodAccess ma | tgts = strictcount(Method m | m = tt2_disp(ma)))
+//   }
+// }
+predicate countdisp_0(int inp, int out, int removed, int irr, int has, int has2) {
   inp = strictcount(Method m, MethodAccess ma | m = viableImpl_inp(ma)) and
   out = strictcount(Method m, MethodAccess ma | m = viableImpl_out(ma)) and
   removed = inp - out and
@@ -630,7 +750,6 @@ predicate countdisp(int inp, int out, int removed, int irr, int has, int has2) {
     strictcount(Method m, MethodAccess ma | m = viableImpl_out(ma) and dispatchOrigin(_, ma, m))
   // has = strictcount(Method m, MethodAccess ma | m = viableImpl_inp(ma) and hasDispatchFlow(ma, m))
 }
-
 Method lamDisp(MethodAccess ma) {
   result = viableImpl_out(ma) and
   dispatchOrigin(_, ma, result)
