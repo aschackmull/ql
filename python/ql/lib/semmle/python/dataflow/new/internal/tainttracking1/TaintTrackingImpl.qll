@@ -123,7 +123,7 @@ abstract class Configuration extends DataFlow::Configuration {
 
   final override predicate isAdditionalFlowStep(DataFlow::Node node1, DataFlow::Node node2) {
     this.isAdditionalTaintStep(node1, node2) or
-    defaultAdditionalTaintStep(node1, node2)
+    defaultAdditionalTaintStep(node1, node2, _)
   }
 
   /**
