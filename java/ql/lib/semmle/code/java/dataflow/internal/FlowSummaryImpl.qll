@@ -255,7 +255,7 @@ module Public {
      */
     pragma[nomagic]
     predicate propagatesFlow(
-      SummaryComponentStack input, SummaryComponentStack output, boolean preservesValue
+      SummaryComponentStack input, SummaryComponentStack output, boolean preservesValue, int modelId
     ) {
       none()
     }
@@ -369,19 +369,19 @@ module Private {
   pragma[nomagic]
   private predicate summary(
     SummarizedCallable c, SummaryComponentStack input, SummaryComponentStack output,
-    boolean preservesValue
+    boolean preservesValue, int modelId
   ) {
-    c.propagatesFlow(input, output, preservesValue)
+    c.propagatesFlow(input, output, preservesValue, modelId)
     or
     // observe side effects of callbacks on input arguments
-    c.propagatesFlow(output, input, preservesValue) and
+    c.propagatesFlow(output, input, preservesValue, modelId) and
     preservesValue = true and
     isCallbackParameter(input) and
     isContentOfArgument(output, _)
     or
     // flow from the receiver of a callback into the instance-parameter
     exists(SummaryComponentStack s, SummaryComponentStack callbackRef |
-      c.propagatesFlow(s, _, _) or c.propagatesFlow(_, s, _)
+      c.propagatesFlow(s, _, _, modelId) or c.propagatesFlow(_, s, _, modelId)
     |
       callbackRef = s.drop(_) and
       (isCallbackParameter(callbackRef) or callbackRef.head() = TReturnSummaryComponent(_)) and
@@ -391,7 +391,7 @@ module Private {
     )
     or
     exists(SummaryComponentStack arg, SummaryComponentStack return |
-      derivedFluentFlow(c, input, arg, return, preservesValue)
+      derivedFluentFlow(c, input, arg, return, preservesValue, modelId)
     |
       arg.length() = 1 and
       output = return
@@ -404,8 +404,8 @@ module Private {
     or
     // Chain together summaries where values get passed into callbacks along the way
     exists(SummaryComponentStack mid, boolean preservesValue1, boolean preservesValue2 |
-      c.propagatesFlow(input, mid, preservesValue1) and
-      c.propagatesFlow(mid, output, preservesValue2) and
+      c.propagatesFlow(input, mid, preservesValue1, _) and // TODO: combine somehow?
+      c.propagatesFlow(mid, output, preservesValue2, modelId) and
       mid.drop(mid.length() - 2) =
         SummaryComponentStack::push(TParameterSummaryComponent(_),
           SummaryComponentStack::singleton(TArgumentSummaryComponent(_))) and
@@ -430,12 +430,12 @@ module Private {
   pragma[nomagic]
   private predicate derivedFluentFlow(
     SummarizedCallable c, SummaryComponentStack input, SummaryComponentStack arg,
-    SummaryComponentStack return, boolean preservesValue
+    SummaryComponentStack return, boolean preservesValue, int modelId
   ) {
     exists(ParameterPosition pos |
-      summary(c, input, arg, preservesValue) and
+      summary(c, input, arg, preservesValue, modelId) and
       isContentOfArgument(arg, pos) and
-      summary(c, SummaryComponentStack::argument(pos), return, true) and
+      summary(c, SummaryComponentStack::argument(pos), return, true, _) and
       return.bottom() = TReturnSummaryComponent(_)
     )
   }
@@ -445,7 +445,7 @@ module Private {
     SummarizedCallable c, SummaryComponentStack input, SummaryComponentStack arg,
     SummaryComponent head, SummaryComponentStack tail, int i
   ) {
-    derivedFluentFlow(c, input, arg, tail, _) and
+    derivedFluentFlow(c, input, arg, tail, _, _) and // TODO: combine somehow?
     head = arg.drop(i).head() and
     i = arg.length() - 2
     or
@@ -467,7 +467,7 @@ module Private {
   }
 
   private predicate outputState(SummarizedCallable c, SummaryComponentStack s) {
-    summary(c, _, s, _)
+    summary(c, _, s, _, _)
     or
     exists(SummaryComponentStack out |
       outputState(c, out) and
@@ -480,7 +480,7 @@ module Private {
   }
 
   private predicate inputState(SummarizedCallable c, SummaryComponentStack s) {
-    summary(c, s, _, _)
+    summary(c, s, _, _, _)
     or
     exists(SummaryComponentStack inp | inputState(c, inp) and s = inp.tail())
     or
@@ -790,7 +790,7 @@ module Private {
       p.isParameterOf(inject(c), pragma[only_bind_into](ppos))
     |
       exists(SummaryComponentStack inputContents, SummaryComponentStack outputContents |
-        summary(c, inputContents, outputContents, _) and
+        summary(c, inputContents, outputContents, _, _) and
         inputContents.bottom() = pragma[only_bind_into](TArgumentSummaryComponent(ppos)) and
         outputContents.bottom() = pragma[only_bind_into](TArgumentSummaryComponent(ppos))
       )
@@ -803,25 +803,26 @@ module Private {
      * Holds if there is a local step from `pred` to `succ`, which is synthesized
      * from a flow summary.
      */
-    predicate summaryLocalStep(SummaryNode pred, SummaryNode succ, boolean preservesValue) {
+    predicate summaryLocalStep(SummaryNode pred, SummaryNode succ, boolean preservesValue, int modelId) {
       exists(
         SummarizedCallable c, SummaryComponentStack inputContents,
         SummaryComponentStack outputContents
       |
-        summary(c, inputContents, outputContents, preservesValue) and
+        summary(c, inputContents, outputContents, preservesValue, modelId) and
         pred = summaryNodeInputState(c, inputContents) and
         succ = summaryNodeOutputState(c, outputContents)
       |
         preservesValue = true
         or
-        preservesValue = false and not summary(c, inputContents, outputContents, true)
+        preservesValue = false and not summary(c, inputContents, outputContents, true, _)
       )
       or
       exists(SummarizedCallable c, SummaryComponentStack s |
         pred = summaryNodeInputState(c, s.tail()) and
         succ = summaryNodeInputState(c, s) and
         s.head() = [SummaryComponent::withContent(_), SummaryComponent::withoutContent(_)] and
-        preservesValue = true
+        preservesValue = true and
+        modelId = 0
       )
     }
 
@@ -931,7 +932,7 @@ module Private {
       or
       exists(SummaryNode mid, boolean clearsOrExpectsMid |
         paramReachesLocal(p, mid, clearsOrExpectsMid) and
-        summaryLocalStep(mid, n, true) and
+        summaryLocalStep(mid, n, true, _) and
         if
           summaryClearsContent(n, _) or
           summaryExpectsContent(n, _)
@@ -989,7 +990,7 @@ module Private {
      */
     predicate summaryThroughStepValue(ArgNode arg, Node out, SummarizedCallable sc) {
       exists(ReturnKind rk, SummaryNode ret, DataFlowCall call |
-        summaryLocalStep(summaryArgParam(call, arg, sc), ret, true) and
+        summaryLocalStep(summaryArgParam(call, arg, sc), ret, true, _) and // TODO: expose modelId?
         summaryReturnNode(ret, pragma[only_bind_into](rk)) and
         out = getAnOutNode(call, pragma[only_bind_into](rk))
       )
@@ -1004,7 +1005,7 @@ module Private {
      */
     predicate summaryThroughStepTaint(ArgNode arg, Node out, SummarizedCallable sc) {
       exists(SummaryNode ret |
-        summaryLocalStep(summaryArgParamRetOut(arg, ret, out, sc), ret, false)
+        summaryLocalStep(summaryArgParamRetOut(arg, ret, out, sc), ret, false, _) // TODO: expose modelId?
       )
     }
 
@@ -1018,7 +1019,7 @@ module Private {
     predicate summaryGetterStep(ArgNode arg, ContentSet c, Node out, SummarizedCallable sc) {
       exists(SummaryNode mid, SummaryNode ret |
         summaryReadStep(summaryArgParamRetOut(arg, ret, out, sc), c, mid) and
-        summaryLocalStep(mid, ret, _)
+        summaryLocalStep(mid, ret, _, _) // TODO: expose modelId?
       )
     }
 
@@ -1031,7 +1032,7 @@ module Private {
      */
     predicate summarySetterStep(ArgNode arg, ContentSet c, Node out, SummarizedCallable sc) {
       exists(SummaryNode mid, SummaryNode ret |
-        summaryLocalStep(summaryArgParamRetOut(arg, ret, out, sc), mid, _) and
+        summaryLocalStep(summaryArgParamRetOut(arg, ret, out, sc), mid, _, _) and // TODO: expose modelId?
         summaryStoreStep(mid, c, ret)
       )
     }
@@ -1044,8 +1045,8 @@ module Private {
   module External {
     /** Holds if `spec` is a relevant external specification. */
     private predicate relevantSpec(string spec) {
-      summaryElement(_, spec, _, _, _) or
-      summaryElement(_, _, spec, _, _) or
+      summaryElement(_, spec, _, _, _, _) or
+      summaryElement(_, _, spec, _, _, _) or
       sourceElement(_, spec, _, _) or
       sinkElement(_, spec, _, _)
     }
@@ -1127,32 +1128,34 @@ module Private {
     }
 
     private class SummarizedCallableExternal extends SummarizedCallable {
-      SummarizedCallableExternal() { summaryElement(this, _, _, _, _) }
+      SummarizedCallableExternal() { summaryElement(this, _, _, _, _, _) }
 
       private predicate relevantSummaryElementGenerated(
-        AccessPath inSpec, AccessPath outSpec, string kind
+        AccessPath inSpec, AccessPath outSpec, string kind, int madid
       ) {
         exists(Provenance provenance |
           provenance.isGenerated() and
-          summaryElement(this, inSpec, outSpec, kind, provenance)
+          summaryElement(this, inSpec, outSpec, kind, provenance, madid)
         ) and
         not this.applyManualModel()
       }
 
-      private predicate relevantSummaryElement(AccessPath inSpec, AccessPath outSpec, string kind) {
+      private predicate relevantSummaryElement(
+        AccessPath inSpec, AccessPath outSpec, string kind, int madid
+      ) {
         exists(Provenance provenance |
           provenance.isManual() and
-          summaryElement(this, inSpec, outSpec, kind, provenance)
+          summaryElement(this, inSpec, outSpec, kind, provenance, madid)
         )
         or
-        this.relevantSummaryElementGenerated(inSpec, outSpec, kind)
+        this.relevantSummaryElementGenerated(inSpec, outSpec, kind, madid)
       }
 
       override predicate propagatesFlow(
-        SummaryComponentStack input, SummaryComponentStack output, boolean preservesValue
+        SummaryComponentStack input, SummaryComponentStack output, boolean preservesValue, int modelId
       ) {
         exists(AccessPath inSpec, AccessPath outSpec, string kind |
-          this.relevantSummaryElement(inSpec, outSpec, kind) and
+          this.relevantSummaryElement(inSpec, outSpec, kind, modelId) and
           interpretSpec(inSpec, input) and
           interpretSpec(outSpec, output)
         |
@@ -1163,7 +1166,7 @@ module Private {
       }
 
       override predicate hasProvenance(Provenance provenance) {
-        summaryElement(this, _, _, _, provenance)
+        summaryElement(this, _, _, _, provenance, _)
       }
     }
 
@@ -1322,7 +1325,7 @@ module Private {
       predicate relevantSummary(
         SummaryComponentStack input, SummaryComponentStack output, boolean preservesValue
       ) {
-        super.propagatesFlow(input, output, preservesValue)
+        super.propagatesFlow(input, output, preservesValue, _)
       }
 
       string toString() { result = super.toString() }
@@ -1451,7 +1454,7 @@ module Private {
 
     private predicate edgesComponent(NodeOrCall a, NodeOrCall b, string value) {
       exists(boolean preservesValue |
-        Private::Steps::summaryLocalStep(a.asNode(), b.asNode(), preservesValue) and
+        Private::Steps::summaryLocalStep(a.asNode(), b.asNode(), preservesValue, _) and
         if preservesValue = true then value = "value" else value = "taint"
       )
       or

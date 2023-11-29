@@ -98,7 +98,9 @@ module MakeImplCommon<InputSig Lang> {
       storeContents.getAStoreContent() = loadContents.getAReadContent()
     }
 
-    predicate simpleLocalSmallStep = simpleLocalFlowStepExt/2;
+    predicate simpleLocalSmallStep(Node node1, Node node2) {
+      simpleLocalFlowStepExt(node1, node2, _)
+    }
 
     predicate levelStepNoCall(Node n1, LocalSourceNode n2) { none() }
 
@@ -284,7 +286,7 @@ module MakeImplCommon<InputSig Lang> {
       exists(Node mid, DataFlowType t0 |
         revLambdaFlow(lambdaCall, kind, mid, t0, toReturn, toJump, lastCall)
       |
-        simpleLocalFlowStep(node, mid) and
+        simpleLocalFlowStep(node, mid, _) and
         t = t0
         or
         exists(boolean preservesValue |
@@ -551,7 +553,7 @@ module MakeImplCommon<InputSig Lang> {
           // local flow
           exists(Node mid |
             parameterValueFlowCand(p, mid, read) and
-            simpleLocalFlowStep(mid, node)
+            simpleLocalFlowStep(mid, node, _)
           )
           or
           // read
@@ -670,7 +672,7 @@ module MakeImplCommon<InputSig Lang> {
           // local flow
           exists(Node mid |
             parameterValueFlow(p, mid, read) and
-            simpleLocalFlowStep(mid, node)
+            simpleLocalFlowStep(mid, node, _) // TODO
           )
           or
           // read
@@ -927,7 +929,7 @@ module MakeImplCommon<InputSig Lang> {
      * interface.
      */
     private predicate reverseStepThroughInputOutputAlias(
-      PostUpdateNode fromNode, PostUpdateNode toNode
+      PostUpdateNode fromNode, PostUpdateNode toNode, int modelId
     ) {
       exists(Node fromPre, Node toPre |
         fromPre = fromNode.getPreUpdateNode() and
@@ -938,17 +940,17 @@ module MakeImplCommon<InputSig Lang> {
           // from function input to output?
           fromPre = getAnOutNode(c, _) and
           toPre.(ArgNode).argumentOf(c, _) and
-          simpleLocalFlowStep(toPre.(ArgNode), fromPre)
+          simpleLocalFlowStep(toPre.(ArgNode), fromPre, modelId)
         )
         or
-        argumentValueFlowsThrough(toPre, TReadStepTypesNone(), fromPre)
+        argumentValueFlowsThrough(toPre, TReadStepTypesNone(), fromPre) and modelId = -1 // TODO: propagate modelId
       )
     }
 
     cached
-    predicate simpleLocalFlowStepExt(Node node1, Node node2) {
-      simpleLocalFlowStep(node1, node2) or
-      reverseStepThroughInputOutputAlias(node1, node2)
+    predicate simpleLocalFlowStepExt(Node node1, Node node2, int modelId) {
+      simpleLocalFlowStep(node1, node2, modelId) or
+      reverseStepThroughInputOutputAlias(node1, node2, modelId)
     }
 
     /**

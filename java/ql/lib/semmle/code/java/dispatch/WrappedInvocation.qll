@@ -73,11 +73,12 @@ private class SummarizedCallableWithCallback extends SummarizedCallable {
   SummarizedCallableWithCallback() { mayInvokeCallback(this.asCallable(), pos) }
 
   override predicate propagatesFlow(
-    SummaryComponentStack input, SummaryComponentStack output, boolean preservesValue
+    SummaryComponentStack input, SummaryComponentStack output, boolean preservesValue, int modelId
   ) {
     input = SummaryComponentStack::argument(pos) and
     output = SummaryComponentStack::push(SummaryComponent::parameter(-1), input) and
-    preservesValue = true
+    preservesValue = true and
+    modelId = -1
   }
 
   override predicate hasProvenance(Provenance provenance) { provenance = "hq-generated" }

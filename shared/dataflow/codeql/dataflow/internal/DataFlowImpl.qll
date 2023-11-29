@@ -65,7 +65,7 @@ module MakeImpl<InputSig Lang> {
     /**
      * Holds if data may flow from `node1` to `node2` in addition to the normal data-flow steps.
      */
-    predicate isAdditionalFlowStep(Node node1, Node node2);
+    predicate isAdditionalFlowStep(Node node1, Node node2, int modelId);
 
     /**
      * Holds if data may flow from `node1` to `node2` in addition to the normal data-flow steps.
@@ -331,11 +331,11 @@ module MakeImpl<InputSig Lang> {
     /**
      * Holds if data can flow in one local step from `node1` to `node2`.
      */
-    private predicate localFlowStepEx(NodeEx node1, NodeEx node2) {
+    private predicate localFlowStepEx(NodeEx node1, NodeEx node2, int modelId) {
       exists(Node n1, Node n2 |
         node1.asNode() = n1 and
         node2.asNode() = n2 and
-        simpleLocalFlowStepExt(pragma[only_bind_into](n1), pragma[only_bind_into](n2)) and
+        simpleLocalFlowStepExt(pragma[only_bind_into](n1), pragma[only_bind_into](n2), modelId) and
         stepFilter(node1, node2)
       )
       or
@@ -343,18 +343,19 @@ module MakeImpl<InputSig Lang> {
         Config::allowImplicitRead(n, _) and
         node1.asNode() = n and
         node2.isImplicitReadNode(n, false) and
-        not fullBarrier(node1)
+        not fullBarrier(node1) and
+        modelId = 0
       )
     }
 
     /**
      * Holds if the additional step from `node1` to `node2` does not jump between callables.
      */
-    private predicate additionalLocalFlowStep(NodeEx node1, NodeEx node2) {
+    private predicate additionalLocalFlowStep(NodeEx node1, NodeEx node2, int modelId) {
       exists(Node n1, Node n2 |
         node1.asNode() = n1 and
         node2.asNode() = n2 and
-        Config::isAdditionalFlowStep(pragma[only_bind_into](n1), pragma[only_bind_into](n2)) and
+        Config::isAdditionalFlowStep(pragma[only_bind_into](n1), pragma[only_bind_into](n2), modelId) and
         getNodeEnclosingCallable(n1) = getNodeEnclosingCallable(n2) and
         stepFilter(node1, node2)
       )
@@ -363,7 +364,8 @@ module MakeImpl<InputSig Lang> {
         Config::allowImplicitRead(n, _) and
         node1.isImplicitReadNode(n, true) and
         node2.asNode() = n and
-        not fullBarrier(node2)
+        not fullBarrier(node2) and
+        modelId = 0
       )
     }
 
@@ -399,7 +401,7 @@ module MakeImpl<InputSig Lang> {
       exists(Node n1, Node n2 |
         node1.asNode() = n1 and
         node2.asNode() = n2 and
-        Config::isAdditionalFlowStep(pragma[only_bind_into](n1), pragma[only_bind_into](n2)) and
+        Config::isAdditionalFlowStep(pragma[only_bind_into](n1), pragma[only_bind_into](n2), _) and // TODO
         getNodeEnclosingCallable(n1) != getNodeEnclosingCallable(n2) and
         stepFilter(node1, node2) and
         not Config::getAFeature() instanceof FeatureEqualSourceSinkCallContext
@@ -537,8 +539,8 @@ module MakeImpl<InputSig Lang> {
         if hasSourceCallCtx() then cc = true else cc = false
         or
         exists(NodeEx mid | fwdFlow(mid, cc) |
-          localFlowStepEx(mid, node) or
-          additionalLocalFlowStep(mid, node) or
+          localFlowStepEx(mid, node, _) or
+          additionalLocalFlowStep(mid, node, _) or
           additionalLocalStateStep(mid, _, node, _)
         )
         or
@@ -730,8 +732,8 @@ module MakeImpl<InputSig Lang> {
         if hasSinkCallCtx() then toReturn = true else toReturn = false
         or
         exists(NodeEx mid | revFlow(mid, toReturn) |
-          localFlowStepEx(node, mid) or
-          additionalLocalFlowStep(node, mid) or
+          localFlowStepEx(node, mid, _) or
+          additionalLocalFlowStep(node, mid, _) or
           additionalLocalStateStep(node, _, mid, _)
         )
         or
@@ -1009,16 +1011,37 @@ module MakeImpl<InputSig Lang> {
 
     private predicate sinkNode = Stage1::sinkNode/2;
 
+    bindingset[modelId]
+    private string mkLabel(int modelId) {
+      if modelId = [-1, 0] then result = ""
+      else result = modelId.toString()
+    }
+
+    bindingset[label1, label2]
+    pragma[inline_late]
+    private string mergeLabels(string label1, string label2) {
+      // TODO: Discarding 2nd+ label as an easy fix for now
+      if label1 = "" then result = label2
+      else result = label1
+    }
+
+
     pragma[noinline]
-    private predicate localFlowStepNodeCand1(NodeEx node1, NodeEx node2) {
-      Stage1::revFlow(node2) and
-      localFlowStepEx(node1, node2)
+    private predicate localFlowStepNodeCand1(NodeEx node1, NodeEx node2, string label) {
+      exists(int modelId |
+        Stage1::revFlow(node2) and
+        localFlowStepEx(node1, node2, modelId) and
+        label = mkLabel(modelId)
+      )
     }
 
     pragma[noinline]
-    private predicate additionalLocalFlowStepNodeCand1(NodeEx node1, NodeEx node2) {
+    private predicate additionalLocalFlowStepNodeCand1(NodeEx node1, NodeEx node2, string label) {
+      exists(int modelId |
       Stage1::revFlow(node2) and
-      additionalLocalFlowStep(node1, node2)
+      additionalLocalFlowStep(node1, node2, modelId) and
+        label = mkLabel(modelId)
+      )
     }
 
     pragma[nomagic]
@@ -2474,11 +2497,11 @@ module MakeImpl<InputSig Lang> {
       ) {
         (
           preservesValue = true and
-          localFlowStepNodeCand1(node1, node2) and
+          localFlowStepNodeCand1(node1, node2, _) and
           state1 = state2
           or
           preservesValue = false and
-          additionalLocalFlowStepNodeCand1(node1, node2) and
+          additionalLocalFlowStepNodeCand1(node1, node2, _) and
           state1 = state2
           or
           preservesValue = false and
@@ -2613,14 +2636,15 @@ module MakeImpl<InputSig Lang> {
 
       pragma[noinline]
       private predicate additionalLocalFlowStepNodeCand2(
-        NodeEx node1, FlowState state1, NodeEx node2, FlowState state2
+        NodeEx node1, FlowState state1, NodeEx node2, FlowState state2, string label
       ) {
-        additionalLocalFlowStepNodeCand1(node1, node2) and
+        additionalLocalFlowStepNodeCand1(node1, node2, label) and
         state1 = state2 and
         Stage2::revFlow(node1, pragma[only_bind_into](state1), false) and
         Stage2::revFlow(node2, pragma[only_bind_into](state2), false)
         or
         additionalLocalStateStep(node1, state1, node2, state2) and
+        label = "" and
         Stage2::revFlow(node1, state1, false) and
         Stage2::revFlow(node2, state2, false)
       }
@@ -2635,19 +2659,19 @@ module MakeImpl<InputSig Lang> {
       pragma[nomagic]
       private predicate localFlowStepPlus(
         NodeEx node1, FlowState state, NodeEx node2, boolean preservesValue, DataFlowType t,
-        LocalCallContext cc
+        LocalCallContext cc, string label
       ) {
         not isUnreachableInCall1(node2, cc) and
         not inBarrier(node2, state) and
         (
           localFlowEntry(node1, pragma[only_bind_into](state)) and
           (
-            localFlowStepNodeCand1(node1, node2) and
+            localFlowStepNodeCand1(node1, node2, label) and
             preservesValue = true and
             t = node1.getDataFlowType() and // irrelevant dummy value
             Stage2::revFlow(node2, pragma[only_bind_into](state))
             or
-            additionalLocalFlowStepNodeCand2(node1, state, node2, state) and
+            additionalLocalFlowStepNodeCand2(node1, state, node2, state, label) and
             preservesValue = false and
             t = node2.getDataFlowType()
           ) and
@@ -2656,21 +2680,23 @@ module MakeImpl<InputSig Lang> {
           not isUnreachableInCall1(node1, cc) and
           not outBarrier(node1, state)
           or
-          exists(NodeEx mid |
-            localFlowStepPlus(node1, pragma[only_bind_into](state), mid, preservesValue, t, cc) and
-            localFlowStepNodeCand1(mid, node2) and
+          exists(NodeEx mid, string label1, string label2 |
+            localFlowStepPlus(node1, pragma[only_bind_into](state), mid, preservesValue, t, cc, label1) and
+            localFlowStepNodeCand1(mid, node2, label2) and
             not outBarrier(mid, state) and
             not mid instanceof FlowCheckNode and
-            Stage2::revFlow(node2, pragma[only_bind_into](state))
+            Stage2::revFlow(node2, pragma[only_bind_into](state)) and
+            label = mergeLabels(label1, label2)
           )
           or
-          exists(NodeEx mid |
-            localFlowStepPlus(node1, state, mid, _, _, cc) and
-            additionalLocalFlowStepNodeCand2(mid, state, node2, state) and
+          exists(NodeEx mid, string label1, string label2 |
+            localFlowStepPlus(node1, state, mid, _, _, cc, label1) and
+            additionalLocalFlowStepNodeCand2(mid, state, node2, state, label2) and
             not outBarrier(mid, state) and
             not mid instanceof FlowCheckNode and
             preservesValue = false and
-            t = node2.getDataFlowType()
+            t = node2.getDataFlowType() and
+            label = mergeLabels(label1, label2)
           )
         )
       }
@@ -2682,13 +2708,13 @@ module MakeImpl<InputSig Lang> {
       pragma[nomagic]
       predicate localFlowBigStep(
         NodeEx node1, FlowState state1, NodeEx node2, FlowState state2, boolean preservesValue,
-        DataFlowType t, LocalCallContext callContext
+        DataFlowType t, LocalCallContext callContext, string label
       ) {
-        localFlowStepPlus(node1, state1, node2, preservesValue, t, callContext) and
+        localFlowStepPlus(node1, state1, node2, preservesValue, t, callContext, label) and
         localFlowExit(node2, state1) and
         state1 = state2
         or
-        additionalLocalFlowStepNodeCand2(node1, state1, node2, state2) and
+        additionalLocalFlowStepNodeCand2(node1, state1, node2, state2, label) and
         state1 != state2 and
         preservesValue = false and
         t = node2.getDataFlowType() and
@@ -2739,7 +2765,7 @@ module MakeImpl<InputSig Lang> {
         NodeEx node1, FlowState state1, NodeEx node2, FlowState state2, boolean preservesValue,
         Typ t, LocalCc lcc
       ) {
-        localFlowBigStep(node1, state1, node2, state2, preservesValue, t, _) and
+        localFlowBigStep(node1, state1, node2, state2, preservesValue, t, _, _) and
         exists(lcc)
       }
 
@@ -2826,7 +2852,7 @@ module MakeImpl<InputSig Lang> {
         NodeEx node1, FlowState state1, NodeEx node2, FlowState state2, boolean preservesValue,
         Typ t, LocalCc lcc
       ) {
-        localFlowBigStep(node1, state1, node2, state2, preservesValue, t, _) and
+        localFlowBigStep(node1, state1, node2, state2, preservesValue, t, _, _) and
         PrevStage::revFlow(node1, pragma[only_bind_into](state1), _) and
         PrevStage::revFlow(node2, pragma[only_bind_into](state2), _) and
         exists(lcc)
@@ -3107,7 +3133,7 @@ module MakeImpl<InputSig Lang> {
         NodeEx node1, FlowState state1, NodeEx node2, FlowState state2, boolean preservesValue,
         Typ t, LocalCc lcc
       ) {
-        localFlowBigStep(node1, state1, node2, state2, preservesValue, t, lcc) and
+        localFlowBigStep(node1, state1, node2, state2, preservesValue, t, lcc, _) and
         PrevStage::revFlow(node1, pragma[only_bind_into](state1), _) and
         PrevStage::revFlow(node2, pragma[only_bind_into](state2), _)
       }
@@ -3329,7 +3355,7 @@ module MakeImpl<InputSig Lang> {
         ap = TAccessPathNil()
         or
         // ... or a step from an existing PathNode to another node.
-        pathStep(_, node, state, cc, sc, t, ap)
+        pathStep(_, node, state, cc, sc, t, ap, _)
       } or
       TPathNodeSink(NodeEx node, FlowState state) {
         exists(PathNodeMid sink |
@@ -3508,22 +3534,34 @@ module MakeImpl<InputSig Lang> {
       /** Holds if this node is a source. */
       abstract predicate isSource();
 
-      abstract PathNodeImpl getASuccessorImpl();
+      abstract PathNodeImpl getASuccessorImpl(string label);
 
-      private PathNodeImpl getASuccessorIfHidden() {
+      private PathNodeImpl getASuccessorIfHidden(string label) {
         this.isHidden() and
-        result = this.getASuccessorImpl()
+        result = this.getASuccessorImpl(label)
       }
 
-      pragma[nomagic]
-      private PathNodeImpl getANonHiddenSuccessor0() {
-        result = this.getASuccessorIfHidden*() and
-        not result.isHidden()
-      }
-
-      final PathNodeImpl getANonHiddenSuccessor() {
-        result = this.getASuccessorImpl().getANonHiddenSuccessor0() and
+      // pragma[nomagic]
+      // private PathNodeImpl getANonHiddenSuccessor0() {
+      //   result = this.getASuccessorIfHidden*() and
+      //   not result.isHidden()
+      // }
+      // final PathNodeImpl getANonHiddenSuccessor(int label) {
+      //   result = this.getASuccessorImpl().getANonHiddenSuccessor0() and
+      //   not this.isHidden()
+      // }
+      private PathNodeImpl getASuccessorFromNonHidden(string label) {
+        result = this.getASuccessorImpl(label) and
         not this.isHidden()
+        or
+        exists(string l1, string l2 |
+          result = this.getASuccessorFromNonHidden(l1).getASuccessorIfHidden(l2) and
+          label = mergeLabels(l1, l2)
+        )
+      }
+
+      final PathNodeImpl getANonHiddenSuccessor(string label) {
+        result = this.getASuccessorFromNonHidden(label) and not result.isHidden()
       }
 
       abstract NodeEx getNodeEx();
@@ -3615,7 +3653,7 @@ module MakeImpl<InputSig Lang> {
     private predicate directReach(PathNodeImpl n) {
       n instanceof PathNodeSink or
       n instanceof PathNodeSinkGroup or
-      directReach(n.getANonHiddenSuccessor())
+      directReach(n.getANonHiddenSuccessor(_))
     }
 
     /** Holds if `n` can reach a sink or is used in a subpath that can reach a sink. */
@@ -3623,7 +3661,7 @@ module MakeImpl<InputSig Lang> {
 
     /** Holds if `n1.getASuccessor() = n2` and `n2` can reach a sink. */
     private predicate pathSucc(PathNodeImpl n1, PathNodeImpl n2) {
-      n1.getANonHiddenSuccessor() = n2 and directReach(n2)
+      n1.getANonHiddenSuccessor(_) = n2 and directReach(n2)
     }
 
     private predicate pathSuccPlus(PathNodeImpl n1, PathNodeImpl n2) = fastTC(pathSucc/2)(n1, n2)
@@ -3664,7 +3702,7 @@ module MakeImpl<InputSig Lang> {
       final FlowState getState() { result = super.getState() }
 
       /** Gets a successor of this node, if any. */
-      final PathNode getASuccessor() { result = super.getANonHiddenSuccessor() }
+      final PathNode getASuccessor() { result = super.getANonHiddenSuccessor(_) }
 
       /** Holds if this node is a source. */
       final predicate isSource() { super.isSource() }
@@ -3681,7 +3719,13 @@ module MakeImpl<InputSig Lang> {
      */
     module PathGraph implements PathGraphSig<PathNode> {
       /** Holds if `(a,b)` is an edge in the graph of data flow path explanations. */
-      query predicate edges(PathNode a, PathNode b) { a.getASuccessor() = b }
+      query predicate edges(PathNode a, PathNode b, string key, string val) {
+        exists(string label |
+          a.(PathNodeImpl).getANonHiddenSuccessor(label) = b and
+          key = "mad.hash" and
+          val = label
+        )
+      }
 
       /** Holds if `n` is a node in the graph of data flow path explanations. */
       query predicate nodes(PathNode n, string key, string val) {
@@ -3724,19 +3768,19 @@ module MakeImpl<InputSig Lang> {
 
       AccessPath getAp() { result = ap }
 
-      private PathNodeMid getSuccMid() {
+      private PathNodeMid getSuccMid(string label) {
         pathStep(this, result.getNodeEx(), result.getState(), result.getCallContext(),
-          result.getSummaryCtx(), result.getType(), result.getAp())
+          result.getSummaryCtx(), result.getType(), result.getAp(), label)
       }
 
-      override PathNodeImpl getASuccessorImpl() {
+      override PathNodeImpl getASuccessorImpl(string label) {
         not outBarrier(node, state) and
         (
           // an intermediate step to another intermediate node
-          result = this.getSuccMid()
+          result = this.getSuccMid(label)
           or
           // a final step to a sink
-          result = this.getSuccMid().projectToSink()
+          result = this.getSuccMid(label).projectToSink()
         )
       }
 
@@ -3790,7 +3834,9 @@ module MakeImpl<InputSig Lang> {
 
       override FlowState getState() { result = state }
 
-      override PathNodeImpl getASuccessorImpl() { result = TPathNodeSinkGroup(this.getSinkGroup()) }
+      override PathNodeImpl getASuccessorImpl(string label) {
+        result = TPathNodeSinkGroup(this.getSinkGroup()) and label = ""
+      }
 
       override predicate isSource() { sourceNode(node, state) }
 
@@ -3806,7 +3852,9 @@ module MakeImpl<InputSig Lang> {
 
       override FlowState getState() { none() }
 
-      override PathNodeImpl getASuccessorImpl() { result.getSourceGroup() = sourceGroup }
+      override PathNodeImpl getASuccessorImpl(string label) {
+        result.getSourceGroup() = sourceGroup and label = ""
+      }
 
       override predicate isSource() { none() }
 
@@ -3828,7 +3876,7 @@ module MakeImpl<InputSig Lang> {
 
       override FlowState getState() { none() }
 
-      override PathNodeImpl getASuccessorImpl() { none() }
+      override PathNodeImpl getASuccessorImpl(string label) { none() }
 
       override predicate isSource() { none() }
 
@@ -3858,10 +3906,10 @@ module MakeImpl<InputSig Lang> {
 
     private predicate pathStep(
       PathNodeMid mid, NodeEx node, FlowState state, CallContext cc, SummaryCtx sc, DataFlowType t,
-      AccessPath ap
+      AccessPath ap, string label
     ) {
       exists(DataFlowType t0 |
-        pathStep0(mid, node, state, cc, sc, t0, ap) and
+        pathStep0(mid, node, state, cc, sc, t0, ap, label) and
         Stage5::revFlow(node, state, ap.getApprox()) and
         strengthenType(node, t0, t) and
         not inBarrier(node, state)
@@ -3875,16 +3923,16 @@ module MakeImpl<InputSig Lang> {
     pragma[nomagic]
     private predicate pathStep0(
       PathNodeMid mid, NodeEx node, FlowState state, CallContext cc, SummaryCtx sc, DataFlowType t,
-      AccessPath ap
+      AccessPath ap, string label
     ) {
       exists(NodeEx midnode, FlowState state0, LocalCallContext localCC |
         pathNode(mid, midnode, state0, cc, sc, t, ap, localCC) and
-        localFlowBigStep(midnode, state0, node, state, true, _, localCC)
+        localFlowBigStep(midnode, state0, node, state, true, _, localCC, label)
       )
       or
       exists(NodeEx midnode, FlowState state0, LocalCallContext localCC |
         pathNode(mid, midnode, state0, cc, sc, _, ap, localCC) and
-        localFlowBigStep(midnode, state0, node, state, false, t, localCC) and
+        localFlowBigStep(midnode, state0, node, state, false, t, localCC, label) and
         ap instanceof AccessPathNil
       )
       or
@@ -3893,7 +3941,8 @@ module MakeImpl<InputSig Lang> {
       cc instanceof CallContextAny and
       sc instanceof SummaryCtxNone and
       t = mid.getType() and
-      ap = mid.getAp()
+      ap = mid.getAp() and
+      label = ""
       or
       additionalJumpStep(mid.getNodeEx(), node) and
       state = mid.getState() and
@@ -3901,35 +3950,39 @@ module MakeImpl<InputSig Lang> {
       sc instanceof SummaryCtxNone and
       mid.getAp() instanceof AccessPathNil and
       t = node.getDataFlowType() and
-      ap = TAccessPathNil()
+      ap = TAccessPathNil() and
+      label = ""
       or
       additionalJumpStateStep(mid.getNodeEx(), mid.getState(), node, state) and
       cc instanceof CallContextAny and
       sc instanceof SummaryCtxNone and
       mid.getAp() instanceof AccessPathNil and
       t = node.getDataFlowType() and
-      ap = TAccessPathNil()
+      ap = TAccessPathNil() and
+      label = ""
       or
       exists(Content c, DataFlowType t0, AccessPath ap0 |
         pathStoreStep(mid, node, state, t0, ap0, c, t, cc) and
         ap.isCons(c, t0, ap0) and
-        sc = mid.getSummaryCtx()
+        sc = mid.getSummaryCtx() and
+        label = ""
       )
       or
       exists(Content c, AccessPath ap0 |
         pathReadStep(mid, node, state, ap0, c, cc) and
         ap0.isCons(c, t, ap) and
-        sc = mid.getSummaryCtx()
+        sc = mid.getSummaryCtx() and
+        label = ""
       )
       or
-      pathIntoCallable(mid, node, state, _, cc, sc, _) and t = mid.getType() and ap = mid.getAp()
+      pathIntoCallable(mid, node, state, _, cc, sc, _) and t = mid.getType() and ap = mid.getAp() and label = ""
       or
       pathOutOfCallable(mid, node, state, cc) and
       t = mid.getType() and
       ap = mid.getAp() and
-      sc instanceof SummaryCtxNone
+      sc instanceof SummaryCtxNone and label = ""
       or
-      pathThroughCallable(mid, node, state, cc, t, ap) and sc = mid.getSummaryCtx()
+      pathThroughCallable(mid, node, state, cc, t, ap) and sc = mid.getSummaryCtx() and label = ""
     }
 
     pragma[nomagic]
@@ -4166,10 +4219,10 @@ module MakeImpl<InputSig Lang> {
       }
 
       private PathNodeImpl localStepToHidden(PathNodeImpl n) {
-        n.getASuccessorImpl() = result and
+        n.getASuccessorImpl(_) = result and
         result.isHidden() and
         exists(NodeEx n1, NodeEx n2 | n1 = n.getNodeEx() and n2 = result.getNodeEx() |
-          localFlowBigStep(n1, _, n2, _, _, _, _) or
+          localFlowBigStep(n1, _, n2, _, _, _, _, _) or
           storeEx(n1, _, n2, _, _) or
           readSetEx(n1, _, n2)
         )
@@ -4177,7 +4230,7 @@ module MakeImpl<InputSig Lang> {
 
       pragma[nomagic]
       private predicate hasSuccessor(PathNodeImpl pred, PathNodeMid succ, NodeEx succNode) {
-        succ = pred.getANonHiddenSuccessor() and
+        succ = pred.getANonHiddenSuccessor(_) and
         succNode = succ.getNodeEx()
       }
 
@@ -4191,7 +4244,7 @@ module MakeImpl<InputSig Lang> {
           ParamNodeEx p, NodeEx o, FlowState sout, DataFlowType t, AccessPath apout,
           PathNodeMid out0
         |
-          pragma[only_bind_into](arg).getANonHiddenSuccessor() = pragma[only_bind_into](out0) and
+          pragma[only_bind_into](arg).getANonHiddenSuccessor(_) = pragma[only_bind_into](out0) and
           subpaths03(pragma[only_bind_into](arg), p, localStepToHidden*(ret), o, sout, t, apout) and
           hasSuccessor(pragma[only_bind_into](arg), par, p) and
           not ret.isHidden() and
@@ -4209,7 +4262,7 @@ module MakeImpl<InputSig Lang> {
         or
         exists(PathNodeImpl mid |
           retReach(mid) and
-          n.getANonHiddenSuccessor() = mid and
+          n.getANonHiddenSuccessor(_) = mid and
           not subpaths(_, mid, _, _)
         )
       }
@@ -4802,7 +4855,7 @@ module MakeImpl<InputSig Lang> {
       ) {
         not isUnreachableInCallCached(node.asNode(), cc.(CallContextSpecificCall).getCall()) and
         (
-          localFlowStepEx(mid.getNodeEx(), node) and
+          localFlowStepEx(mid.getNodeEx(), node, _) and
           state = mid.getState() and
           cc = mid.getCallContext() and
           sc1 = mid.getSummaryCtx1() and
@@ -4812,7 +4865,7 @@ module MakeImpl<InputSig Lang> {
           t = mid.getType() and
           ap = mid.getAp()
           or
-          additionalLocalFlowStep(mid.getNodeEx(), node) and
+          additionalLocalFlowStep(mid.getNodeEx(), node, _) and
           state = mid.getState() and
           cc = mid.getCallContext() and
           sc1 = mid.getSummaryCtx1() and
@@ -5078,14 +5131,14 @@ module MakeImpl<InputSig Lang> {
         PartialPathNodeRev mid, NodeEx node, FlowState state, TRevSummaryCtx1 sc1,
         TRevSummaryCtx2 sc2, TRevSummaryCtx3 sc3, PartialAccessPath ap
       ) {
-        localFlowStepEx(node, mid.getNodeEx()) and
+        localFlowStepEx(node, mid.getNodeEx(), _) and
         state = mid.getState() and
         sc1 = mid.getSummaryCtx1() and
         sc2 = mid.getSummaryCtx2() and
         sc3 = mid.getSummaryCtx3() and
         ap = mid.getAp()
         or
-        additionalLocalFlowStep(node, mid.getNodeEx()) and
+        additionalLocalFlowStep(node, mid.getNodeEx(), _) and
         state = mid.getState() and
         sc1 = mid.getSummaryCtx1() and
         sc2 = mid.getSummaryCtx2() and

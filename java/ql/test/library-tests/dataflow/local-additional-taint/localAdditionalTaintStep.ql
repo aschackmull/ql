@@ -14,7 +14,7 @@ predicate taintFlowUpdate(DataFlow::ParameterNode p1, DataFlow::ParameterNode p2
 
 predicate summaryStep(FlowSummaryNode src, FlowSummaryNode sink) {
   FlowSummaryImpl::Private::Steps::summaryLocalStep(src.getSummaryNode(), sink.getSummaryNode(),
-    false) or
+    false, _) or
   FlowSummaryImpl::Private::Steps::summaryReadStep(src.getSummaryNode(), _, sink.getSummaryNode()) or
   FlowSummaryImpl::Private::Steps::summaryStoreStep(src.getSummaryNode(), _, sink.getSummaryNode())
 }

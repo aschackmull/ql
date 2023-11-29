@@ -98,7 +98,7 @@ private module Cached {
   predicate localTaintStep(DataFlow::Node src, DataFlow::Node sink) {
     DataFlow::localFlowStep(src, sink)
     or
-    localAdditionalTaintStep(src, sink)
+    localAdditionalTaintStep(src, sink, _)
     or
     // Simple flow through library code is included in the exposed local
     // step relation, even though flow is technically inter-procedural
@@ -119,11 +119,11 @@ private module Cached {
    * different objects.
    */
   cached
-  predicate localAdditionalTaintStep(DataFlow::Node src, DataFlow::Node sink) {
-    localAdditionalTaintExprStep(src.asExpr(), sink.asExpr())
+  predicate localAdditionalTaintStep(DataFlow::Node src, DataFlow::Node sink, int modelId) {
+    localAdditionalTaintExprStep(src.asExpr(), sink.asExpr()) and modelId = -1
     or
     localAdditionalTaintUpdateStep(src.asExpr(),
-      sink.(DataFlow::PostUpdateNode).getPreUpdateNode().asExpr())
+      sink.(DataFlow::PostUpdateNode).getPreUpdateNode().asExpr()) and modelId = -1
     or
     exists(DataFlow::Content f |
       readStep(src, f, sink) and
@@ -135,10 +135,10 @@ private module Cached {
         or
         f instanceof TaintInheritingContent
       )
-    )
+    ) and modelId = 0
     or
     FlowSummaryImpl::Private::Steps::summaryLocalStep(src.(DataFlowPrivate::FlowSummaryNode)
-          .getSummaryNode(), sink.(DataFlowPrivate::FlowSummaryNode).getSummaryNode(), false)
+          .getSummaryNode(), sink.(DataFlowPrivate::FlowSummaryNode).getSummaryNode(), false, modelId)
   }
 
   /**
@@ -146,10 +146,10 @@ private module Cached {
    * global taint flow configurations.
    */
   cached
-  predicate defaultAdditionalTaintStep(DataFlow::Node src, DataFlow::Node sink) {
-    localAdditionalTaintStep(src, sink) or
-    entrypointFieldStep(src, sink) or
-    any(AdditionalTaintStep a).step(src, sink)
+  predicate defaultAdditionalTaintStep(DataFlow::Node src, DataFlow::Node sink, int modelId) {
+    localAdditionalTaintStep(src, sink, modelId) or
+    entrypointFieldStep(src, sink) and modelId = 0 or
+    any(AdditionalTaintStep a).step(src, sink) and modelId = -1
   }
 
   /**

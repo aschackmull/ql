@@ -181,9 +181,9 @@ class SummarizedCallable = Impl::Public::SummarizedCallable;
  */
 private class SummarizedSyntheticCallableAdapter extends SummarizedCallable, TSyntheticCallable {
   override predicate propagatesFlow(
-    SummaryComponentStack input, SummaryComponentStack output, boolean preservesValue
+    SummaryComponentStack input, SummaryComponentStack output, boolean preservesValue, int modelId
   ) {
-    this.asSyntheticCallable().propagatesFlow(input, output, preservesValue)
+    this.asSyntheticCallable().propagatesFlow(input, output, preservesValue) and modelId = -1
   }
 }
 

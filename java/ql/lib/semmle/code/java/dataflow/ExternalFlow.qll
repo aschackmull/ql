@@ -166,13 +166,16 @@ predicate sinkModel(
 /** Holds if a summary model exists for the given parameters. */
 predicate summaryModel(
   string package, string type, boolean subtypes, string name, string signature, string ext,
-  string input, string output, string kind, string provenance
+  string input, string output, string kind, string provenance, int madid
 ) {
+  (
   Extensions::summaryModel(package, type, subtypes, name, signature, ext, input, output, kind,
     provenance)
   or
   any(ActiveExperimentalModels q)
       .summaryModel(package, type, subtypes, name, signature, ext, input, output, kind, provenance)
+  )
+  and madid = 1234 //hash
 }
 
 /** Holds if a neutral model exists for the given parameters. */
@@ -181,7 +184,7 @@ predicate neutralModel = Extensions::neutralModel/6;
 private predicate relevantPackage(string package) {
   sourceModel(package, _, _, _, _, _, _, _, _) or
   sinkModel(package, _, _, _, _, _, _, _, _) or
-  summaryModel(package, _, _, _, _, _, _, _, _, _)
+  summaryModel(package, _, _, _, _, _, _, _, _, _, _)
 }
 
 private predicate packageLink(string shortpkg, string longpkg) {
@@ -227,7 +230,7 @@ predicate modelCoverage(string package, int pkgs, string kind, string part, int 
       strictcount(string subpkg, string type, boolean subtypes, string name, string signature,
         string ext, string input, string output, string provenance |
         canonicalPkgLink(package, subpkg) and
-        summaryModel(subpkg, type, subtypes, name, signature, ext, input, output, kind, provenance)
+        summaryModel(subpkg, type, subtypes, name, signature, ext, input, output, kind, provenance, _)
       )
   )
 }
@@ -238,7 +241,7 @@ module ModelValidation {
     exists(string pred, AccessPath input, AccessPathToken part |
       sinkModel(_, _, _, _, _, _, input, _, _) and pred = "sink"
       or
-      summaryModel(_, _, _, _, _, _, input, _, _, _) and pred = "summary"
+      summaryModel(_, _, _, _, _, _, input, _, _, _, _) and pred = "summary"
     |
       (
         invalidSpecComponent(input, part) and
@@ -260,7 +263,7 @@ module ModelValidation {
     exists(string pred, AccessPath output, AccessPathToken part |
       sourceModel(_, _, _, _, _, _, output, _, _) and pred = "source"
       or
-      summaryModel(_, _, _, _, _, _, _, output, _, _) and pred = "summary"
+      summaryModel(_, _, _, _, _, _, _, output, _, _, _) and pred = "summary"
     |
       (
         invalidSpecComponent(output, part) and
@@ -275,7 +278,7 @@ module ModelValidation {
   }
 
   private module KindValConfig implements SharedModelVal::KindValidationConfigSig {
-    predicate summaryKind(string kind) { summaryModel(_, _, _, _, _, _, _, _, kind, _) }
+    predicate summaryKind(string kind) { summaryModel(_, _, _, _, _, _, _, _, kind, _, _) }
 
     predicate sinkKind(string kind) { sinkModel(_, _, _, _, _, _, _, kind, _) }
 
@@ -295,7 +298,7 @@ module ModelValidation {
       or
       sinkModel(package, type, _, name, signature, ext, _, _, provenance) and pred = "sink"
       or
-      summaryModel(package, type, _, name, signature, ext, _, _, _, provenance) and
+      summaryModel(package, type, _, name, signature, ext, _, _, _, provenance, _) and
       pred = "summary"
       or
       neutralModel(package, type, name, signature, _, provenance) and
@@ -340,7 +343,7 @@ private predicate elementSpec(
   or
   sinkModel(package, type, subtypes, name, signature, ext, _, _, _)
   or
-  summaryModel(package, type, subtypes, name, signature, ext, _, _, _, _)
+  summaryModel(package, type, subtypes, name, signature, ext, _, _, _, _, _)
   or
   neutralModel(package, type, name, signature, _, _) and ext = "" and subtypes = false
 }

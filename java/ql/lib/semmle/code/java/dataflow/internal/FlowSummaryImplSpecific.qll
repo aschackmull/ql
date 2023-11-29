@@ -82,8 +82,8 @@ private predicate relatedArgSpec(Callable c, string spec) {
   exists(
     string namespace, string type, boolean subtypes, string name, string signature, string ext
   |
-    summaryModel(namespace, type, subtypes, name, signature, ext, spec, _, _, _) or
-    summaryModel(namespace, type, subtypes, name, signature, ext, _, spec, _, _) or
+    summaryModel(namespace, type, subtypes, name, signature, ext, spec, _, _, _, _) or
+    summaryModel(namespace, type, subtypes, name, signature, ext, _, spec, _, _, _) or
     sourceModel(namespace, type, subtypes, name, signature, ext, spec, _, _) or
     sinkModel(namespace, type, subtypes, name, signature, ext, spec, _, _)
   |
@@ -146,14 +146,14 @@ private predicate correspondingKotlinParameterDefaultsArgSpec(
  * `input`, output specification `output`, kind `kind`, and provenance `provenance`.
  */
 predicate summaryElement(
-  SummarizedCallableBase c, string input, string output, string kind, string provenance
+  SummarizedCallableBase c, string input, string output, string kind, string provenance, int madid
 ) {
   exists(
     string namespace, string type, boolean subtypes, string name, string signature, string ext,
     string originalInput, string originalOutput, Callable baseCallable
   |
     summaryModel(namespace, type, subtypes, name, signature, ext, originalInput, originalOutput,
-      kind, provenance) and
+      kind, provenance, madid) and
     baseCallable = interpretElement(namespace, type, subtypes, name, signature, ext) and
     (
       c.asCallable() = baseCallable and input = originalInput and output = originalOutput
