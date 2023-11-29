@@ -163,19 +163,65 @@ predicate sinkModel(
       .sinkModel(package, type, subtypes, name, signature, ext, input, kind, provenance)
 }
 
+private predicate djb2_input(string s) {
+  exists(
+    string package, string type, string name, string signature, string ext, string input,
+    string output, string kind, string provenance
+  |
+    Extensions::summaryModel(package, type, _, name, signature, ext, input, output, kind, provenance)
+    or
+    any(ActiveExperimentalModels q)
+        .summaryModel(package, type, _, name, signature, ext, input, output, kind, provenance)
+  |
+    s = [package, type, name, signature, ext, input, output, kind, provenance]
+  )
+}
+
+private int djb2_part(string s, int i) {
+  djb2_input(s) and i = 0 and result = 5381
+  or
+  (djb2_part(s, i - 1) * 33).bitXor(s.codePointAt(i - 1)) = result
+}
+
+private int djb2(string s) {
+  // Bernstein hash (XOR version)
+  // seed = 5381
+  // hash(i) = hash(i - 1) * 33 ^ str[i]
+  result = djb2_part(s, s.length())
+}
+
 /** Holds if a summary model exists for the given parameters. */
 predicate summaryModel(
   string package, string type, boolean subtypes, string name, string signature, string ext,
   string input, string output, string kind, string provenance, int madid
 ) {
   (
-  Extensions::summaryModel(package, type, subtypes, name, signature, ext, input, output, kind,
-    provenance)
-  or
-  any(ActiveExperimentalModels q)
-      .summaryModel(package, type, subtypes, name, signature, ext, input, output, kind, provenance)
+    Extensions::summaryModel(package, type, subtypes, name, signature, ext, input, output, kind,
+      provenance)
+    or
+    any(ActiveExperimentalModels q)
+        .summaryModel(package, type, subtypes, name, signature, ext, input, output, kind, provenance)
+  ) and
+  exists(int h1, int h2, int h3, int h4, int h5, int h6, int h7, int h8, int h9, int h10, int p |
+    p = 19 and
+    madid =
+      ((((((((h1 * p + h2) * p + h3) * p + h4) * p + h5) * p + h6) * p + h7) * p + h8) * p + h9) * p
+        + h10 and
+    h1 = djb2(package) and
+    h2 = djb2(type) and
+    (
+      subtypes = true and h3 = 1
+      or
+      subtypes = false and h3 = 0
+    ) and
+    h4 = djb2(name) and
+    h5 = djb2(signature) and
+    h6 = djb2(ext) and
+    h7 = djb2(input) and
+    h8 = djb2(output) and
+    h9 = djb2(kind) and
+    h10 = djb2(provenance)
   )
-  and madid = 1234 //hash
 }
 
 /** Holds if a neutral model exists for the given parameters. */
@@ -230,7 +276,8 @@ predicate modelCoverage(string package, int pkgs, string kind, string part, int 
       strictcount(string subpkg, string type, boolean subtypes, string name, string signature,
         string ext, string input, string output, string provenance |
         canonicalPkgLink(package, subpkg) and
-        summaryModel(subpkg, type, subtypes, name, signature, ext, input, output, kind, provenance, _)
+        summaryModel(subpkg, type, subtypes, name, signature, ext, input, output, kind, provenance,
+          _)
       )
   )
 }
