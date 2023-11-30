@@ -242,6 +242,8 @@ signature module InputSig {
   /** Extra data-flow steps needed for lambda flow analysis. */
   predicate additionalLambdaFlowStep(Node nodeFrom, Node nodeTo, boolean preservesValue);
 
+  predicate knownSourceModel(Node sink, int modelId);
+
   predicate knownSinkModel(Node sink, int modelId);
 
   /**

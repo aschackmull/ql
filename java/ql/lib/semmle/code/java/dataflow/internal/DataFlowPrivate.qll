@@ -532,6 +532,8 @@ predicate lambdaCall(DataFlowCall call, LambdaCallKind kind, Node receiver) {
 /** Extra data-flow steps needed for lambda flow analysis. */
 predicate additionalLambdaFlowStep(Node nodeFrom, Node nodeTo, boolean preservesValue) { none() }
 
+predicate knownSourceModel(Node source, int modelId) { sourceNode(source, _, modelId) }
+
 predicate knownSinkModel(Node sink, int modelId) { sinkNode(sink, _, modelId) }
 
 /**

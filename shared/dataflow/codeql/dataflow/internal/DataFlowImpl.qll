@@ -1011,6 +1011,15 @@ module MakeImpl<InputSig Lang> {
 
     private predicate sinkNode = Stage1::sinkNode/2;
 
+    private predicate sourceLabel(NodeEx node, string label) {
+      sourceNode(node, _) and
+      exists(Node n | n = node.asNode() |
+        exists(int modelId | knownSourceModel(n, modelId) and label = mkLabel(modelId))
+        or
+        not knownSourceModel(n, _) and label = ""
+      )
+    }
+
     private predicate sinkLabel(NodeEx node, string label) {
       sinkNode(node, _) and
       exists(Node n | n = node.asNode() |
@@ -3541,7 +3550,7 @@ module MakeImpl<InputSig Lang> {
       abstract FlowState getState();
 
       /** Holds if this node is a source. */
-      abstract predicate isSource();
+      abstract predicate isSource(string label);
 
       abstract PathNodeImpl getASuccessorImpl(string label);
 
@@ -3579,7 +3588,7 @@ module MakeImpl<InputSig Lang> {
         not Config::includeHiddenNodes() and
         (
           hiddenNode(this.getNodeEx().asNode()) and
-          not this.isSource() and
+          not this.isSource(_) and
           not this instanceof PathNodeSink
           or
           this.getNodeEx() instanceof TNodeImplicitRead
@@ -3587,12 +3596,12 @@ module MakeImpl<InputSig Lang> {
       }
 
       string getSourceGroup() {
-        this.isSource() and
+        this.isSource(_) and
         Config::sourceGrouping(this.getNodeEx().asNode(), result)
       }
 
       predicate isFlowSource() {
-        this.isSource() and not exists(this.getSourceGroup())
+        this.isSource(_) and not exists(this.getSourceGroup())
         or
         this instanceof PathNodeSourceGroup
       }
@@ -3714,7 +3723,7 @@ module MakeImpl<InputSig Lang> {
       final PathNode getASuccessor() { result = super.getANonHiddenSuccessor(_) }
 
       /** Holds if this node is a source. */
-      final predicate isSource() { super.isSource() }
+      final predicate isSource() { super.isSource(_) }
 
       /** Holds if this node is a grouping of source nodes. */
       final predicate isSourceGroup(string group) { this = TPathNodeSourceGroup(group) }
@@ -3789,7 +3798,15 @@ module MakeImpl<InputSig Lang> {
         not outBarrier(node, state) and
         (
           // an intermediate step to another intermediate node
-          result = this.getSuccMid(label)
+          result = this.getSuccMid(label) and
+          not this.isSource(_)
+          or
+          exists(string l1, string l2 |
+            // a step from a source to an intermediate node
+            result = this.getSuccMid(l2) and
+            this.isSource(l1) and
+            label = l1 + "," + l2
+          )
           or
           // a final step to a sink
           exists(string l1, string l2 |
@@ -3800,8 +3817,9 @@ module MakeImpl<InputSig Lang> {
         )
       }
 
-      override predicate isSource() {
+      override predicate isSource(string label) {
         sourceNode(node, state) and
+        sourceLabel(node, label) and
         sourceCallCtx(cc) and
         sc instanceof SummaryCtxNone and
         t = node.getDataFlowType() and
@@ -3855,7 +3873,9 @@ module MakeImpl<InputSig Lang> {
         result = TPathNodeSinkGroup(this.getSinkGroup()) and label = ""
       }
 
-      override predicate isSource() { sourceNode(node, state) }
+      override predicate isSource(string label) {
+        sourceNode(node, state) and sourceLabel(node, label)
+      }
 
       string getSinkGroup() { Config::sinkGrouping(node.asNode(), result) }
     }
@@ -3873,7 +3893,7 @@ module MakeImpl<InputSig Lang> {
         result.getSourceGroup() = sourceGroup and label = ""
       }
 
-      override predicate isSource() { none() }
+      override predicate isSource(string label) { none() }
 
       override string toString() { result = sourceGroup }
 
@@ -3895,7 +3915,7 @@ module MakeImpl<InputSig Lang> {
 
       override PathNodeImpl getASuccessorImpl(string label) { none() }
 
-      override predicate isSource() { none() }
+      override predicate isSource(string label) { none() }
 
       override string toString() { result = sinkGroup }
 
@@ -4322,7 +4342,7 @@ module MakeImpl<InputSig Lang> {
     deprecated predicate hasFlowPath = flowPath/2;
 
     private predicate flowsTo(PathNodeImpl flowsource, PathNodeSink flowsink, Node source, Node sink) {
-      flowsource.isSource() and
+      flowsource.isSource(_) and
       flowsource.getNodeEx().asNode() = source and
       (flowsource = flowsink or pathSuccPlus(flowsource, flowsink)) and
       flowsink.getNodeEx().asNode() = sink
