@@ -1047,8 +1047,8 @@ module Private {
     private predicate relevantSpec(string spec) {
       summaryElement(_, spec, _, _, _, _) or
       summaryElement(_, _, spec, _, _, _) or
-      sourceElement(_, spec, _, _) or
-      sinkElement(_, spec, _, _)
+      sourceElement(_, spec, _, _, _) or
+      sinkElement(_, spec, _, _, _)
     }
 
     private class AccessPathRange extends AccessPath::Range {
@@ -1131,24 +1131,24 @@ module Private {
       SummarizedCallableExternal() { summaryElement(this, _, _, _, _, _) }
 
       private predicate relevantSummaryElementGenerated(
-        AccessPath inSpec, AccessPath outSpec, string kind, int madid
+        AccessPath inSpec, AccessPath outSpec, string kind, int madId
       ) {
         exists(Provenance provenance |
           provenance.isGenerated() and
-          summaryElement(this, inSpec, outSpec, kind, provenance, madid)
+          summaryElement(this, inSpec, outSpec, kind, provenance, madId)
         ) and
         not this.applyManualModel()
       }
 
       private predicate relevantSummaryElement(
-        AccessPath inSpec, AccessPath outSpec, string kind, int madid
+        AccessPath inSpec, AccessPath outSpec, string kind, int madId
       ) {
         exists(Provenance provenance |
           provenance.isManual() and
-          summaryElement(this, inSpec, outSpec, kind, provenance, madid)
+          summaryElement(this, inSpec, outSpec, kind, provenance, madId)
         )
         or
-        this.relevantSummaryElementGenerated(inSpec, outSpec, kind, madid)
+        this.relevantSummaryElementGenerated(inSpec, outSpec, kind, madId)
       }
 
       override predicate propagatesFlow(
@@ -1200,18 +1200,18 @@ module Private {
       outputNeedsReferenceSpecific(c)
     }
 
-    private predicate sourceElementRef(InterpretNode ref, AccessPath output, string kind) {
+    private predicate sourceElementRef(InterpretNode ref, AccessPath output, string kind, int madId) {
       exists(SourceOrSinkElement e |
-        sourceElement(e, output, kind, _) and
+        sourceElement(e, output, kind, _, madId) and
         if outputNeedsReference(output.getToken(0))
         then e = ref.getCallTarget()
         else e = ref.asElement()
       )
     }
 
-    private predicate sinkElementRef(InterpretNode ref, AccessPath input, string kind) {
+    private predicate sinkElementRef(InterpretNode ref, AccessPath input, string kind, int madId) {
       exists(SourceOrSinkElement e |
-        sinkElement(e, input, kind, _) and
+        sinkElement(e, input, kind, _, madId) and
         if inputNeedsReference(input.getToken(0))
         then e = ref.getCallTarget()
         else e = ref.asElement()
@@ -1222,7 +1222,7 @@ module Private {
     private predicate interpretOutput(
       AccessPath output, int n, InterpretNode ref, InterpretNode node
     ) {
-      sourceElementRef(ref, output, _) and
+      sourceElementRef(ref, output, _, _) and
       n = 0 and
       (
         if output = ""
@@ -1259,7 +1259,7 @@ module Private {
 
     /** Holds if the first `n` tokens of `input` resolve to the given interpretation. */
     private predicate interpretInput(AccessPath input, int n, InterpretNode ref, InterpretNode node) {
-      sinkElementRef(ref, input, _) and
+      sinkElementRef(ref, input, _, _) and
       n = 0 and
       (
         if input = ""
@@ -1295,9 +1295,9 @@ module Private {
      * Holds if `node` is specified as a source with the given kind in a MaD flow
      * model.
      */
-    predicate isSourceNode(InterpretNode node, string kind) {
+    predicate isSourceNode(InterpretNode node, string kind, int madId) {
       exists(InterpretNode ref, AccessPath output |
-        sourceElementRef(ref, output, kind) and
+        sourceElementRef(ref, output, kind, madId) and
         interpretOutput(output, output.getNumToken(), ref, node)
       )
     }
@@ -1306,9 +1306,9 @@ module Private {
      * Holds if `node` is specified as a sink with the given kind in a MaD flow
      * model.
      */
-    predicate isSinkNode(InterpretNode node, string kind) {
+    predicate isSinkNode(InterpretNode node, string kind, int madId) {
       exists(InterpretNode ref, AccessPath input |
-        sinkElementRef(ref, input, kind) and
+        sinkElementRef(ref, input, kind, madId) and
         interpretInput(input, input.getNumToken(), ref, node)
       )
     }

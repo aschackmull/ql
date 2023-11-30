@@ -1011,20 +1011,26 @@ module MakeImpl<InputSig Lang> {
 
     private predicate sinkNode = Stage1::sinkNode/2;
 
+    private predicate sinkLabel(NodeEx node, string label) {
+      sinkNode(node, _) and
+      exists(Node n | n = node.asNode() |
+        exists(int modelId | knownSinkModel(n, modelId) and label = mkLabel(modelId))
+        or
+        not knownSinkModel(n, _) and label = ""
+      )
+    }
+
     bindingset[modelId]
     private string mkLabel(int modelId) {
-      if modelId = [-1, 0] then result = ""
-      else result = modelId.toString()
+      if modelId = [-1, 0] then result = "" else result = modelId.toString()
     }
 
     bindingset[label1, label2]
     pragma[inline_late]
     private string mergeLabels(string label1, string label2) {
       // TODO: Discarding 2nd+ label as an easy fix for now
-      if label1 = "" then result = label2
-      else result = label1
+      if label1 = "" then result = label2 else result = label1
     }
-
 
     pragma[noinline]
     private predicate localFlowStepNodeCand1(NodeEx node1, NodeEx node2, string label) {
@@ -1038,8 +1044,8 @@ module MakeImpl<InputSig Lang> {
     pragma[noinline]
     private predicate additionalLocalFlowStepNodeCand1(NodeEx node1, NodeEx node2, string label) {
       exists(int modelId |
-      Stage1::revFlow(node2) and
-      additionalLocalFlowStep(node1, node2, modelId) and
+        Stage1::revFlow(node2) and
+        additionalLocalFlowStep(node1, node2, modelId) and
         label = mkLabel(modelId)
       )
     }
@@ -2681,7 +2687,8 @@ module MakeImpl<InputSig Lang> {
           not outBarrier(node1, state)
           or
           exists(NodeEx mid, string label1, string label2 |
-            localFlowStepPlus(node1, pragma[only_bind_into](state), mid, preservesValue, t, cc, label1) and
+            localFlowStepPlus(node1, pragma[only_bind_into](state), mid, preservesValue, t, cc,
+              label1) and
             localFlowStepNodeCand1(mid, node2, label2) and
             not outBarrier(mid, state) and
             not mid instanceof FlowCheckNode and
@@ -3359,7 +3366,7 @@ module MakeImpl<InputSig Lang> {
       } or
       TPathNodeSink(NodeEx node, FlowState state) {
         exists(PathNodeMid sink |
-          sink.isAtSink() and
+          sink.isAtSink(_) and
           node = sink.getNodeEx() and
           state = sink.getState()
         )
@@ -3780,7 +3787,10 @@ module MakeImpl<InputSig Lang> {
           result = this.getSuccMid(label)
           or
           // a final step to a sink
-          result = this.getSuccMid(label).projectToSink()
+          exists(string l1, string l2 |
+            result = this.getSuccMid(l1).projectToSink(l2) and
+            label = mergeLabels(l2, l1)
+          )
         )
       }
 
@@ -3792,8 +3802,9 @@ module MakeImpl<InputSig Lang> {
         ap = TAccessPathNil()
       }
 
-      predicate isAtSink() {
+      predicate isAtSink(string label) {
         sinkNode(node, state) and
+        sinkLabel(node, label) and
         ap instanceof AccessPathNil and
         if hasSinkCallCtx()
         then
@@ -3812,8 +3823,8 @@ module MakeImpl<InputSig Lang> {
         else any()
       }
 
-      PathNodeSink projectToSink() {
-        this.isAtSink() and
+      PathNodeSink projectToSink(string label) {
+        this.isAtSink(label) and
         result.getNodeEx() = node and
         result.getState() = state
       }
@@ -3975,12 +3986,16 @@ module MakeImpl<InputSig Lang> {
         label = ""
       )
       or
-      pathIntoCallable(mid, node, state, _, cc, sc, _) and t = mid.getType() and ap = mid.getAp() and label = ""
+      pathIntoCallable(mid, node, state, _, cc, sc, _) and
+      t = mid.getType() and
+      ap = mid.getAp() and
+      label = ""
       or
       pathOutOfCallable(mid, node, state, cc) and
       t = mid.getType() and
       ap = mid.getAp() and
-      sc instanceof SummaryCtxNone and label = ""
+      sc instanceof SummaryCtxNone and
+      label = ""
       or
       pathThroughCallable(mid, node, state, cc, t, ap) and sc = mid.getSummaryCtx() and label = ""
     }
@@ -4250,7 +4265,7 @@ module MakeImpl<InputSig Lang> {
           not ret.isHidden() and
           pathNode(out0, o, sout, _, _, t, apout, _)
         |
-          out = out0 or out = out0.projectToSink()
+          out = out0 or out = out0.projectToSink(_)
         )
       }
 

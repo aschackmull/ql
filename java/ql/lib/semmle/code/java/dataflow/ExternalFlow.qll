@@ -141,37 +141,28 @@ abstract class ActiveExperimentalModels extends string {
   }
 }
 
-/** Holds if a source model exists for the given parameters. */
-predicate sourceModel(
-  string package, string type, boolean subtypes, string name, string signature, string ext,
-  string output, string kind, string provenance
-) {
-  Extensions::sourceModel(package, type, subtypes, name, signature, ext, output, kind, provenance)
-  or
-  any(ActiveExperimentalModels q)
-      .sourceModel(package, type, subtypes, name, signature, ext, output, kind, provenance)
-}
-
-/** Holds if a sink model exists for the given parameters. */
-predicate sinkModel(
-  string package, string type, boolean subtypes, string name, string signature, string ext,
-  string input, string kind, string provenance
-) {
-  Extensions::sinkModel(package, type, subtypes, name, signature, ext, input, kind, provenance)
-  or
-  any(ActiveExperimentalModels q)
-      .sinkModel(package, type, subtypes, name, signature, ext, input, kind, provenance)
-}
-
 private predicate djb2_input(string s) {
   exists(
     string package, string type, string name, string signature, string ext, string input,
     string output, string kind, string provenance
   |
+    Extensions::sourceModel(package, type, _, name, signature, ext, output, kind, provenance) and
+    input = ""
+    or
+    Extensions::sinkModel(package, type, _, name, signature, ext, input, kind, provenance) and
+    output = ""
+    or
     Extensions::summaryModel(package, type, _, name, signature, ext, input, output, kind, provenance)
     or
-    any(ActiveExperimentalModels q)
-        .summaryModel(package, type, _, name, signature, ext, input, output, kind, provenance)
+    exists(ActiveExperimentalModels q |
+      q.sourceModel(package, type, _, name, signature, ext, output, kind, provenance) and
+      input = ""
+      or
+      q.sinkModel(package, type, _, name, signature, ext, input, kind, provenance) and
+      output = ""
+      or
+      q.summaryModel(package, type, _, name, signature, ext, input, output, kind, provenance)
+    )
   |
     s = [package, type, name, signature, ext, input, output, kind, provenance]
   )
@@ -190,10 +181,60 @@ private int djb2(string s) {
   result = djb2_part(s, s.length())
 }
 
+private int hashBool(boolean b) {
+  b = true and result = 1
+  or
+  b = false and result = 0
+}
+
+bindingset[h1, h2, h3, h4, h5, h6, h7, h8, h9, h10]
+private int hashTuple(
+  int h1, int h2, int h3, int h4, int h5, int h6, int h7, int h8, int h9, int h10
+) {
+  exists(int p |
+    p = 19 and
+    result =
+      ((((((((h1 * p + h2) * p + h3) * p + h4) * p + h5) * p + h6) * p + h7) * p + h8) * p + h9) * p
+        + h10
+  )
+}
+
+/** Holds if a source model exists for the given parameters. */
+predicate sourceModel(
+  string package, string type, boolean subtypes, string name, string signature, string ext,
+  string output, string kind, string provenance, int madId
+) {
+  (
+    Extensions::sourceModel(package, type, subtypes, name, signature, ext, output, kind, provenance)
+    or
+    any(ActiveExperimentalModels q)
+        .sourceModel(package, type, subtypes, name, signature, ext, output, kind, provenance)
+  ) and
+  madId =
+    hashTuple(djb2(package), djb2(type), hashBool(subtypes), djb2(name), djb2(signature), djb2(ext),
+      0, djb2(output), djb2(kind), djb2(provenance))
+}
+
+/** Holds if a sink model exists for the given parameters. */
+predicate sinkModel(
+  string package, string type, boolean subtypes, string name, string signature, string ext,
+  string input, string kind, string provenance, int madId
+) {
+  (
+    Extensions::sinkModel(package, type, subtypes, name, signature, ext, input, kind, provenance)
+    or
+    any(ActiveExperimentalModels q)
+        .sinkModel(package, type, subtypes, name, signature, ext, input, kind, provenance)
+  ) and
+  madId =
+    hashTuple(djb2(package), djb2(type), hashBool(subtypes), djb2(name), djb2(signature), djb2(ext),
+      djb2(input), 0, djb2(kind), djb2(provenance))
+}
+
 /** Holds if a summary model exists for the given parameters. */
 predicate summaryModel(
   string package, string type, boolean subtypes, string name, string signature, string ext,
-  string input, string output, string kind, string provenance, int madid
+  string input, string output, string kind, string provenance, int madId
 ) {
   (
     Extensions::summaryModel(package, type, subtypes, name, signature, ext, input, output, kind,
@@ -202,34 +243,17 @@ predicate summaryModel(
     any(ActiveExperimentalModels q)
         .summaryModel(package, type, subtypes, name, signature, ext, input, output, kind, provenance)
   ) and
-  exists(int h1, int h2, int h3, int h4, int h5, int h6, int h7, int h8, int h9, int h10, int p |
-    p = 19 and
-    madid =
-      ((((((((h1 * p + h2) * p + h3) * p + h4) * p + h5) * p + h6) * p + h7) * p + h8) * p + h9) * p
-        + h10 and
-    h1 = djb2(package) and
-    h2 = djb2(type) and
-    (
-      subtypes = true and h3 = 1
-      or
-      subtypes = false and h3 = 0
-    ) and
-    h4 = djb2(name) and
-    h5 = djb2(signature) and
-    h6 = djb2(ext) and
-    h7 = djb2(input) and
-    h8 = djb2(output) and
-    h9 = djb2(kind) and
-    h10 = djb2(provenance)
-  )
+  madId =
+    hashTuple(djb2(package), djb2(type), hashBool(subtypes), djb2(name), djb2(signature), djb2(ext),
+      djb2(input), djb2(output), djb2(kind), djb2(provenance))
 }
 
 /** Holds if a neutral model exists for the given parameters. */
 predicate neutralModel = Extensions::neutralModel/6;
 
 private predicate relevantPackage(string package) {
-  sourceModel(package, _, _, _, _, _, _, _, _) or
-  sinkModel(package, _, _, _, _, _, _, _, _) or
+  sourceModel(package, _, _, _, _, _, _, _, _, _) or
+  sinkModel(package, _, _, _, _, _, _, _, _, _) or
   summaryModel(package, _, _, _, _, _, _, _, _, _, _)
 }
 
@@ -260,7 +284,7 @@ predicate modelCoverage(string package, int pkgs, string kind, string part, int 
       strictcount(string subpkg, string type, boolean subtypes, string name, string signature,
         string ext, string output, string provenance |
         canonicalPkgLink(package, subpkg) and
-        sourceModel(subpkg, type, subtypes, name, signature, ext, output, kind, provenance)
+        sourceModel(subpkg, type, subtypes, name, signature, ext, output, kind, provenance, _)
       )
     or
     part = "sink" and
@@ -268,7 +292,7 @@ predicate modelCoverage(string package, int pkgs, string kind, string part, int 
       strictcount(string subpkg, string type, boolean subtypes, string name, string signature,
         string ext, string input, string provenance |
         canonicalPkgLink(package, subpkg) and
-        sinkModel(subpkg, type, subtypes, name, signature, ext, input, kind, provenance)
+        sinkModel(subpkg, type, subtypes, name, signature, ext, input, kind, provenance, _)
       )
     or
     part = "summary" and
@@ -286,7 +310,7 @@ predicate modelCoverage(string package, int pkgs, string kind, string part, int 
 module ModelValidation {
   private string getInvalidModelInput() {
     exists(string pred, AccessPath input, AccessPathToken part |
-      sinkModel(_, _, _, _, _, _, input, _, _) and pred = "sink"
+      sinkModel(_, _, _, _, _, _, input, _, _, _) and pred = "sink"
       or
       summaryModel(_, _, _, _, _, _, input, _, _, _, _) and pred = "summary"
     |
@@ -308,7 +332,7 @@ module ModelValidation {
 
   private string getInvalidModelOutput() {
     exists(string pred, AccessPath output, AccessPathToken part |
-      sourceModel(_, _, _, _, _, _, output, _, _) and pred = "source"
+      sourceModel(_, _, _, _, _, _, output, _, _, _) and pred = "source"
       or
       summaryModel(_, _, _, _, _, _, _, output, _, _, _) and pred = "summary"
     |
@@ -327,9 +351,9 @@ module ModelValidation {
   private module KindValConfig implements SharedModelVal::KindValidationConfigSig {
     predicate summaryKind(string kind) { summaryModel(_, _, _, _, _, _, _, _, kind, _, _) }
 
-    predicate sinkKind(string kind) { sinkModel(_, _, _, _, _, _, _, kind, _) }
+    predicate sinkKind(string kind) { sinkModel(_, _, _, _, _, _, _, kind, _, _) }
 
-    predicate sourceKind(string kind) { sourceModel(_, _, _, _, _, _, _, kind, _) }
+    predicate sourceKind(string kind) { sourceModel(_, _, _, _, _, _, _, kind, _, _) }
 
     predicate neutralKind(string kind) { neutralModel(_, _, _, _, kind, _) }
   }
@@ -341,9 +365,9 @@ module ModelValidation {
       string pred, string package, string type, string name, string signature, string ext,
       string provenance
     |
-      sourceModel(package, type, _, name, signature, ext, _, _, provenance) and pred = "source"
+      sourceModel(package, type, _, name, signature, ext, _, _, provenance, _) and pred = "source"
       or
-      sinkModel(package, type, _, name, signature, ext, _, _, provenance) and pred = "sink"
+      sinkModel(package, type, _, name, signature, ext, _, _, provenance, _) and pred = "sink"
       or
       summaryModel(package, type, _, name, signature, ext, _, _, _, provenance, _) and
       pred = "summary"
@@ -386,9 +410,9 @@ pragma[nomagic]
 private predicate elementSpec(
   string package, string type, boolean subtypes, string name, string signature, string ext
 ) {
-  sourceModel(package, type, subtypes, name, signature, ext, _, _, _)
+  sourceModel(package, type, subtypes, name, signature, ext, _, _, _, _)
   or
-  sinkModel(package, type, subtypes, name, signature, ext, _, _, _)
+  sinkModel(package, type, subtypes, name, signature, ext, _, _, _, _)
   or
   summaryModel(package, type, subtypes, name, signature, ext, _, _, _, _, _)
   or
@@ -527,8 +551,10 @@ private module Cached {
    * model.
    */
   cached
-  predicate sourceNode(Node node, string kind) {
-    exists(FlowSummaryImplSpecific::InterpretNode n | isSourceNode(n, kind) and n.asNode() = node)
+  predicate sourceNode(Node node, string kind, int madId) {
+    exists(FlowSummaryImplSpecific::InterpretNode n |
+      isSourceNode(n, kind, madId) and n.asNode() = node
+    )
   }
 
   /**
@@ -536,9 +562,23 @@ private module Cached {
    * model.
    */
   cached
-  predicate sinkNode(Node node, string kind) {
-    exists(FlowSummaryImplSpecific::InterpretNode n | isSinkNode(n, kind) and n.asNode() = node)
+  predicate sinkNode(Node node, string kind, int madId) {
+    exists(FlowSummaryImplSpecific::InterpretNode n |
+      isSinkNode(n, kind, madId) and n.asNode() = node
+    )
   }
 }
 
 import Cached
+
+/**
+ * Holds if `node` is specified as a source with the given kind in a MaD flow
+ * model.
+ */
+predicate sourceNode(Node node, string kind) { sourceNode(node, kind, _) }
+
+/**
+ * Holds if `node` is specified as a sink with the given kind in a MaD flow
+ * model.
+ */
+predicate sinkNode(Node node, string kind) { sinkNode(node, kind, _) }

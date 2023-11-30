@@ -242,6 +242,8 @@ signature module InputSig {
   /** Extra data-flow steps needed for lambda flow analysis. */
   predicate additionalLambdaFlowStep(Node nodeFrom, Node nodeTo, boolean preservesValue);
 
+  predicate knownSinkModel(Node sink, int modelId);
+
   /**
    * Holds if `n` should never be skipped over in the `PathGraph` and in path
    * explanations.

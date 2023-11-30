@@ -84,8 +84,8 @@ private predicate relatedArgSpec(Callable c, string spec) {
   |
     summaryModel(namespace, type, subtypes, name, signature, ext, spec, _, _, _, _) or
     summaryModel(namespace, type, subtypes, name, signature, ext, _, spec, _, _, _) or
-    sourceModel(namespace, type, subtypes, name, signature, ext, spec, _, _) or
-    sinkModel(namespace, type, subtypes, name, signature, ext, spec, _, _)
+    sourceModel(namespace, type, subtypes, name, signature, ext, spec, _, _, _) or
+    sinkModel(namespace, type, subtypes, name, signature, ext, spec, _, _, _)
   |
     c = interpretElement(namespace, type, subtypes, name, signature, ext)
   )
@@ -146,14 +146,14 @@ private predicate correspondingKotlinParameterDefaultsArgSpec(
  * `input`, output specification `output`, kind `kind`, and provenance `provenance`.
  */
 predicate summaryElement(
-  SummarizedCallableBase c, string input, string output, string kind, string provenance, int madid
+  SummarizedCallableBase c, string input, string output, string kind, string provenance, int madId
 ) {
   exists(
     string namespace, string type, boolean subtypes, string name, string signature, string ext,
     string originalInput, string originalOutput, Callable baseCallable
   |
     summaryModel(namespace, type, subtypes, name, signature, ext, originalInput, originalOutput,
-      kind, provenance, madid) and
+      kind, provenance, madId) and
     baseCallable = interpretElement(namespace, type, subtypes, name, signature, ext) and
     (
       c.asCallable() = baseCallable and input = originalInput and output = originalOutput
@@ -239,12 +239,12 @@ class SourceOrSinkElement = Top;
  * Holds if an external source specification exists for `e` with output specification
  * `output`, kind `kind`, and provenance `provenance`.
  */
-predicate sourceElement(SourceOrSinkElement e, string output, string kind, string provenance) {
+predicate sourceElement(SourceOrSinkElement e, string output, string kind, string provenance, int madId) {
   exists(
     string namespace, string type, boolean subtypes, string name, string signature, string ext,
     SourceOrSinkElement baseSource, string originalOutput
   |
-    sourceModel(namespace, type, subtypes, name, signature, ext, originalOutput, kind, provenance) and
+    sourceModel(namespace, type, subtypes, name, signature, ext, originalOutput, kind, provenance, madId) and
     baseSource = interpretElement(namespace, type, subtypes, name, signature, ext) and
     (
       e = baseSource and output = originalOutput
@@ -258,12 +258,12 @@ predicate sourceElement(SourceOrSinkElement e, string output, string kind, strin
  * Holds if an external sink specification exists for `e` with input specification
  * `input`, kind `kind` and provenance `provenance`.
  */
-predicate sinkElement(SourceOrSinkElement e, string input, string kind, string provenance) {
+predicate sinkElement(SourceOrSinkElement e, string input, string kind, string provenance, int madId) {
   exists(
     string namespace, string type, boolean subtypes, string name, string signature, string ext,
     SourceOrSinkElement baseSink, string originalInput
   |
-    sinkModel(namespace, type, subtypes, name, signature, ext, originalInput, kind, provenance) and
+    sinkModel(namespace, type, subtypes, name, signature, ext, originalInput, kind, provenance, madId) and
     baseSink = interpretElement(namespace, type, subtypes, name, signature, ext) and
     (
       e = baseSink and originalInput = input
