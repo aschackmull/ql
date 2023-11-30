@@ -211,8 +211,8 @@ predicate sourceModel(
         .sourceModel(package, type, subtypes, name, signature, ext, output, kind, provenance)
   ) and
   madId =
-    hashTuple(djb2(package), djb2(type), hashBool(subtypes), djb2(name), djb2(signature), djb2(ext),
-      0, djb2(output), djb2(kind), djb2(provenance))
+    hashTuple(0, djb2(package), djb2(type), hashBool(subtypes), djb2(name), djb2(signature),
+      djb2(ext), djb2(output), djb2(kind), djb2(provenance))
 }
 
 /** Holds if a sink model exists for the given parameters. */
@@ -227,8 +227,8 @@ predicate sinkModel(
         .sinkModel(package, type, subtypes, name, signature, ext, input, kind, provenance)
   ) and
   madId =
-    hashTuple(djb2(package), djb2(type), hashBool(subtypes), djb2(name), djb2(signature), djb2(ext),
-      djb2(input), 0, djb2(kind), djb2(provenance))
+    hashTuple(0, djb2(package), djb2(type), hashBool(subtypes), djb2(name), djb2(signature),
+      djb2(ext), djb2(input), djb2(kind), djb2(provenance))
 }
 
 /** Holds if a summary model exists for the given parameters. */
