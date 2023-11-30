@@ -3351,7 +3351,8 @@ module MakeImpl<InputSig Lang> {
 
     private newtype TPathNode =
       TPathNodeMid(
-        NodeEx node, FlowState state, CallContext cc, SummaryCtx sc, DataFlowType t, AccessPath ap
+        NodeEx node, FlowState state, CallContext cc, SummaryCtx sc, DataFlowType t, AccessPath ap,
+        string summaryLabel
       ) {
         // A PathNode is introduced by a source ...
         Stage5::revFlow(node, state) and
@@ -3359,10 +3360,11 @@ module MakeImpl<InputSig Lang> {
         sourceCallCtx(cc) and
         sc instanceof SummaryCtxNone and
         t = node.getDataFlowType() and
-        ap = TAccessPathNil()
+        ap = TAccessPathNil() and
+        summaryLabel = ""
         or
         // ... or a step from an existing PathNode to another node.
-        pathStep(_, node, state, cc, sc, t, ap, _)
+        pathStep(_, node, state, cc, sc, t, ap, summaryLabel, _)
       } or
       TPathNodeSink(NodeEx node, FlowState state) {
         exists(PathNodeMid sink |
@@ -3760,8 +3762,9 @@ module MakeImpl<InputSig Lang> {
       SummaryCtx sc;
       DataFlowType t;
       AccessPath ap;
+      string summaryLabel;
 
-      PathNodeMid() { this = TPathNodeMid(node, state, cc, sc, t, ap) }
+      PathNodeMid() { this = TPathNodeMid(node, state, cc, sc, t, ap, summaryLabel) }
 
       override NodeEx getNodeEx() { result = node }
 
@@ -3775,9 +3778,11 @@ module MakeImpl<InputSig Lang> {
 
       AccessPath getAp() { result = ap }
 
+      string getSummaryLabel() { result = summaryLabel }
+
       private PathNodeMid getSuccMid(string label) {
         pathStep(this, result.getNodeEx(), result.getState(), result.getCallContext(),
-          result.getSummaryCtx(), result.getType(), result.getAp(), label)
+          result.getSummaryCtx(), result.getType(), result.getAp(), _, label)
       }
 
       override PathNodeImpl getASuccessorImpl(string label) {
@@ -3903,7 +3908,7 @@ module MakeImpl<InputSig Lang> {
 
     private predicate pathNode(
       PathNodeMid mid, NodeEx midnode, FlowState state, CallContext cc, SummaryCtx sc,
-      DataFlowType t, AccessPath ap, LocalCallContext localCC
+      DataFlowType t, AccessPath ap, string summaryLabel, LocalCallContext localCC
     ) {
       midnode = mid.getNodeEx() and
       state = mid.getState() and
@@ -3913,15 +3918,16 @@ module MakeImpl<InputSig Lang> {
         getLocalCallContext(pragma[only_bind_into](pragma[only_bind_out](cc)),
           midnode.getEnclosingCallable()) and
       t = mid.getType() and
-      ap = mid.getAp()
+      ap = mid.getAp() and
+      summaryLabel = mid.getSummaryLabel()
     }
 
     private predicate pathStep(
       PathNodeMid mid, NodeEx node, FlowState state, CallContext cc, SummaryCtx sc, DataFlowType t,
-      AccessPath ap, string label
+      AccessPath ap, string summaryLabel, string label
     ) {
       exists(DataFlowType t0 |
-        pathStep0(mid, node, state, cc, sc, t0, ap, label) and
+        pathStep0(mid, node, state, cc, sc, t0, ap, summaryLabel, label) and
         Stage5::revFlow(node, state, ap.getApprox()) and
         strengthenType(node, t0, t) and
         not inBarrier(node, state)
@@ -3935,17 +3941,19 @@ module MakeImpl<InputSig Lang> {
     pragma[nomagic]
     private predicate pathStep0(
       PathNodeMid mid, NodeEx node, FlowState state, CallContext cc, SummaryCtx sc, DataFlowType t,
-      AccessPath ap, string label
+      AccessPath ap, string summaryLabel, string label
     ) {
-      exists(NodeEx midnode, FlowState state0, LocalCallContext localCC |
-        pathNode(mid, midnode, state0, cc, sc, t, ap, localCC) and
-        localFlowBigStep(midnode, state0, node, state, true, _, localCC, label)
+      exists(NodeEx midnode, FlowState state0, string sl, LocalCallContext localCC |
+        pathNode(mid, midnode, state0, cc, sc, t, ap, sl, localCC) and
+        localFlowBigStep(midnode, state0, node, state, true, _, localCC, label) and
+        summaryLabel = mergeLabels(sl, label)
       )
       or
-      exists(NodeEx midnode, FlowState state0, LocalCallContext localCC |
-        pathNode(mid, midnode, state0, cc, sc, _, ap, localCC) and
+      exists(NodeEx midnode, FlowState state0, string sl, LocalCallContext localCC |
+        pathNode(mid, midnode, state0, cc, sc, _, ap, sl, localCC) and
         localFlowBigStep(midnode, state0, node, state, false, t, localCC, label) and
-        ap instanceof AccessPathNil
+        ap instanceof AccessPathNil and
+        summaryLabel = mergeLabels(sl, label)
       )
       or
       jumpStepEx(mid.getNodeEx(), node) and
@@ -3954,6 +3962,7 @@ module MakeImpl<InputSig Lang> {
       sc instanceof SummaryCtxNone and
       t = mid.getType() and
       ap = mid.getAp() and
+      summaryLabel = "" and
       label = ""
       or
       additionalJumpStep(mid.getNodeEx(), node) and
@@ -3963,6 +3972,7 @@ module MakeImpl<InputSig Lang> {
       mid.getAp() instanceof AccessPathNil and
       t = node.getDataFlowType() and
       ap = TAccessPathNil() and
+      summaryLabel = "" and
       label = ""
       or
       additionalJumpStateStep(mid.getNodeEx(), mid.getState(), node, state) and
@@ -3971,12 +3981,14 @@ module MakeImpl<InputSig Lang> {
       mid.getAp() instanceof AccessPathNil and
       t = node.getDataFlowType() and
       ap = TAccessPathNil() and
+      summaryLabel = "" and
       label = ""
       or
       exists(Content c, DataFlowType t0, AccessPath ap0 |
         pathStoreStep(mid, node, state, t0, ap0, c, t, cc) and
         ap.isCons(c, t0, ap0) and
         sc = mid.getSummaryCtx() and
+        summaryLabel = mid.getSummaryLabel() and
         label = ""
       )
       or
@@ -3984,21 +3996,26 @@ module MakeImpl<InputSig Lang> {
         pathReadStep(mid, node, state, ap0, c, cc) and
         ap0.isCons(c, t, ap) and
         sc = mid.getSummaryCtx() and
+        summaryLabel = mid.getSummaryLabel() and
         label = ""
       )
       or
       pathIntoCallable(mid, node, state, _, cc, sc, _) and
       t = mid.getType() and
       ap = mid.getAp() and
+      summaryLabel = "" and
       label = ""
       or
       pathOutOfCallable(mid, node, state, cc) and
       t = mid.getType() and
       ap = mid.getAp() and
       sc instanceof SummaryCtxNone and
+      summaryLabel = "" and
       label = ""
       or
-      pathThroughCallable(mid, node, state, cc, t, ap) and sc = mid.getSummaryCtx() and label = ""
+      pathThroughCallable(mid, node, state, cc, t, ap, label) and
+      sc = mid.getSummaryCtx() and
+      summaryLabel = mid.getSummaryLabel()
     }
 
     pragma[nomagic]
@@ -4085,7 +4102,7 @@ module MakeImpl<InputSig Lang> {
       DataFlowType t, AccessPath ap, AccessPathApprox apa
     ) {
       exists(ArgNodeEx arg, ArgumentPosition apos |
-        pathNode(mid, arg, state, cc, _, t, ap, _) and
+        pathNode(mid, arg, state, cc, _, t, ap, _, _) and
         not outBarrier(arg, state) and
         arg.asNode().(ArgNode).argumentOf(call, apos) and
         apa = ap.getApprox() and
@@ -4153,10 +4170,10 @@ module MakeImpl<InputSig Lang> {
     pragma[nomagic]
     private predicate paramFlowsThrough(
       ReturnKindExt kind, FlowState state, CallContextCall cc, SummaryCtxSome sc, DataFlowType t,
-      AccessPath ap, AccessPathApprox apa
+      AccessPath ap, AccessPathApprox apa, string summaryLabel
     ) {
       exists(RetNodeEx ret |
-        pathNode(_, ret, state, cc, sc, t, ap, _) and
+        pathNode(_, ret, state, cc, sc, t, ap, summaryLabel, _) and
         kind = ret.getKind() and
         apa = ap.getApprox() and
         parameterFlowThroughAllowed(sc.getParamNode(), kind)
@@ -4166,11 +4183,11 @@ module MakeImpl<InputSig Lang> {
     pragma[nomagic]
     private predicate pathThroughCallable0(
       DataFlowCall call, PathNodeMid mid, ReturnKindExt kind, FlowState state, CallContext cc,
-      DataFlowType t, AccessPath ap, AccessPathApprox apa
+      DataFlowType t, AccessPath ap, AccessPathApprox apa, string label
     ) {
       exists(CallContext innercc, SummaryCtx sc |
         pathIntoCallable(mid, _, _, cc, innercc, sc, call) and
-        paramFlowsThrough(kind, state, innercc, sc, t, ap, apa)
+        paramFlowsThrough(kind, state, innercc, sc, t, ap, apa, label)
       )
     }
 
@@ -4180,10 +4197,11 @@ module MakeImpl<InputSig Lang> {
      */
     pragma[noinline]
     private predicate pathThroughCallable(
-      PathNodeMid mid, NodeEx out, FlowState state, CallContext cc, DataFlowType t, AccessPath ap
+      PathNodeMid mid, NodeEx out, FlowState state, CallContext cc, DataFlowType t, AccessPath ap,
+      string label
     ) {
       exists(DataFlowCall call, ReturnKindExt kind, AccessPathApprox apa |
-        pathThroughCallable0(call, mid, kind, state, cc, t, ap, apa) and
+        pathThroughCallable0(call, mid, kind, state, cc, t, ap, apa, label) and
         out = getAnOutNodeFlow(kind, call, apa)
       )
     }
@@ -4199,10 +4217,10 @@ module MakeImpl<InputSig Lang> {
         ReturnKindExt kind, NodeEx out, FlowState sout, DataFlowType t, AccessPath apout
       ) {
         pathThroughCallable(arg, out, pragma[only_bind_into](sout), _, pragma[only_bind_into](t),
-          pragma[only_bind_into](apout)) and
+          pragma[only_bind_into](apout), _) and
         pathIntoCallable(arg, par, _, _, innercc, sc, _) and
         paramFlowsThrough(kind, pragma[only_bind_into](sout), innercc, sc,
-          pragma[only_bind_into](t), pragma[only_bind_into](apout), _) and
+          pragma[only_bind_into](t), pragma[only_bind_into](apout), _, _) and
         not arg.isHidden()
       }
 
@@ -4229,7 +4247,7 @@ module MakeImpl<InputSig Lang> {
       ) {
         exists(SummaryCtxSome sc, CallContext innercc, ReturnKindExt kind, RetNodeEx retnode |
           subpaths02(arg, par, sc, innercc, kind, out, sout, t, apout) and
-          pathNode(ret, retnode, sout, innercc, sc, t, apout, _) and
+          pathNode(ret, retnode, sout, innercc, sc, t, apout, _, _) and
           kind = retnode.getKind()
         )
       }
@@ -4264,7 +4282,7 @@ module MakeImpl<InputSig Lang> {
           subpaths03(pragma[only_bind_into](arg), p, localStepToHidden*(ret), o, sout, t, apout) and
           hasSuccessor(pragma[only_bind_into](arg), par, p) and
           not ret.isHidden() and
-          pathNode(out0, o, sout, _, _, t, apout, _)
+          pathNode(out0, o, sout, _, _, t, apout, _, _)
         |
           out = out0 or out = out0.projectToSink(_)
         )
