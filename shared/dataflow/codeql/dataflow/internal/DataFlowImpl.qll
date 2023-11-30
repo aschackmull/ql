@@ -3789,7 +3789,8 @@ module MakeImpl<InputSig Lang> {
           // a final step to a sink
           exists(string l1, string l2 |
             result = this.getSuccMid(l1).projectToSink(l2) and
-            label = mergeLabels(l2, l1)
+            label = l1 + "," + l2
+            // label = mergeLabels(l2, l1)
           )
         )
       }
