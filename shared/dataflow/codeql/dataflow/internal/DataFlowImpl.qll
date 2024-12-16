@@ -9,6 +9,7 @@ private import codeql.util.Option
 private import codeql.util.Boolean
 private import codeql.util.Location
 private import codeql.dataflow.DataFlow
+private import codeql.dataflow.internal.Splitting as Splitting
 
 module MakeImpl<LocationSig Location, InputSig<Location> Lang> {
   private import Lang
@@ -623,7 +624,8 @@ module MakeImpl<LocationSig Location, InputSig<Location> Lang> {
         )
       }
 
-      private predicate fwdFlow(NodeEx node) { fwdFlow(node, _) }
+      // private
+       predicate fwdFlow(NodeEx node) { fwdFlow(node, _) }
 
       pragma[nomagic]
       private predicate fwdFlowReadSet(ContentSet c, NodeEx node, Cc cc) {
@@ -880,6 +882,7 @@ module MakeImpl<LocationSig Location, InputSig<Location> Lang> {
         NodeEx node1, Content c, NodeEx node2, DataFlowType contentType, DataFlowType containerType
       ) {
         revFlowIsReadAndStored(c) and
+        revFlow(node1) and
         revFlow(node2) and
         store(node1, c, node2, contentType, containerType)
       }
@@ -888,6 +891,7 @@ module MakeImpl<LocationSig Location, InputSig<Location> Lang> {
       predicate readStepCand(NodeEx n1, Content c, NodeEx n2) {
         revFlowIsReadAndStored(c) and
         read(n1, c, n2) and
+        revFlow(n1) and
         revFlow(n2)
       }
 
@@ -910,6 +914,13 @@ module MakeImpl<LocationSig Location, InputSig<Location> Lang> {
       private predicate throughFlowNodeCand(NodeEx node) {
         revFlow(node, true) and
         fwdFlow(node, true) and
+        not inBarrier(node) and
+        not outBarrier(node)
+      }
+
+      private predicate noThroughFlowNodeCand(NodeEx node) {
+        revFlow(node, false) and
+        fwdFlow(node, false) and
         not inBarrier(node) and
         not outBarrier(node)
       }
@@ -938,10 +949,20 @@ module MakeImpl<LocationSig Location, InputSig<Location> Lang> {
           parameterFlowThroughAllowed(p, kind)
         )
       }
+      pragma[nomagic]
+      predicate parameterMightNotFlowThrough(ParamNodeEx p) {
+        noThroughFlowNodeCand(p)
+      }
 
       pragma[nomagic]
       predicate returnMayFlowThrough(RetNodeEx ret, ReturnKindExt kind) {
         throughFlowNodeCand(ret) and
+        kind = ret.getKind()
+      }
+
+      pragma[nomagic]
+      predicate returnMightNotFlowThrough(RetNodeEx ret, ReturnKindExt kind) {
+        noThroughFlowNodeCand(ret) and
         kind = ret.getKind()
       }
 
@@ -1008,6 +1029,132 @@ module MakeImpl<LocationSig Location, InputSig<Location> Lang> {
           )
       }
       /* End: Stage 1 logic. */
+    }
+
+    // module SplittingInput implements Splitting::SplittingSig<NodeEx> {
+    module SplittingInput implements Splitting::SplittingSig<Location> {
+      class Node = NodeEx;
+
+      class SplitKind instanceof Lang::SplitKind {
+        string toString() { result = super.toString() }
+
+        Location getLocation() { result = super.getLocation() }
+
+        predicate inScope(NodeEx n) { super.inScope(n.asNodeOrImplicitRead()) }
+      }
+
+      class Split instanceof Lang::Split {
+        string toString() { result = super.toString() }
+
+        Location getLocation() { result = super.getLocation() }
+
+        SplitKind getKind() { result = super.getKind() }
+
+        predicate holds(NodeEx n) { super.holds(n.asNodeOrImplicitRead()) }
+      }
+    }
+
+    module Stage1LocalFlow implements Splitting::GraphSig<NodeEx> {
+      predicate entry(NodeEx node) {
+        Stage1::revFlow(node) and
+        (
+          sourceNode(node, _)
+          or
+          exists(NodeEx mid | Stage1::revFlow(mid) |
+            jumpStepEx(mid, node) or
+            additionalJumpStep(mid, node, _) or
+            additionalJumpStateStep(mid, _, node, _, _)
+          )
+          or
+          Stage1::callEdgeArgParam(_, _, _, node, _)
+          or
+          exists(RetNodeEx ret, ReturnKindExt kind |
+            Stage1::callEdgeReturn(_, _, ret, kind, node, _) and
+            Stage1::returnMightNotFlowThrough(ret, kind)
+          )
+        )
+      }
+      
+      predicate exit(NodeEx node) {
+        Stage1::revFlow(node) and
+        (
+          sinkNode(node, _)
+          or
+          exists(NodeEx mid | Stage1::revFlow(mid) |
+            jumpStepEx(node, mid) or
+            additionalJumpStep(node, mid, _) or
+            additionalJumpStateStep(node, _, mid, _, _)
+          )
+          or
+          Stage1::callEdgeReturn(_, _, node, _, _, _)
+          or
+          exists(ParamNodeEx p |
+            Stage1::callEdgeArgParam(_, _, node, p, _) and
+            Stage1::parameterMightNotFlowThrough(p)
+          )
+        )
+      }
+
+      predicate step(NodeEx n1, NodeEx n2) {
+        localStepNodeCand1(n1, n2, _, _, _, _)
+        or
+        localStateStepNodeCand1(n1, _, n2, _, _, _, _)
+        or
+        Stage1::storeStepCand(n1, _, n2, _, _)
+        or
+        Stage1::readStepCand(n1, _, n2)
+        or
+        exists(DataFlowCall call, DataFlowCallable c |
+          Stage1::callEdgeArgParam(call, c, n1, _, _) and
+          Stage1::callEdgeReturn(call, c, _, _, n2, _)
+        )
+      }
+    }
+
+    // predicate testReach1(DataFlowCallable c, NodeEx n) {
+    //   PostStage1Splitting::revReach(n, _) and
+    //   n.getEnclosingCallable() = c
+    // }
+    
+    // predicate testReach2(DataFlowCallable c, NodeEx n, int line) {
+    //   testReach1(c, _) and
+    //   n.getEnclosingCallable() = c and
+    //   Stage1::revFlow(n) and
+    //   n.getLocation().getStartLine() = line
+    // }
+
+    // predicate testReach3(DataFlowCallable c, NodeEx n, int line) {
+    //   testReach1(c, _) and
+    //   n.getEnclosingCallable() = c and
+    //   Stage1::fwdFlow(n) and
+    //   n.getLocation().getStartLine() = line
+    // }
+    
+    // predicate testEntryFwd(DataFlowCallable c, int line, NodeEx n) {
+    //   // Stage1::viableReturnPosOutNodeCandFwd1(_, _, n) and
+    //   // flowOutOfCallNodeCand1(_,_,_,n)and
+    //       exists(RetNodeEx ret, ReturnKindExt kind |
+    //         Stage1::callEdgeReturn(_, _, ret, kind, n, _)
+    //         and
+    //         Stage1::returnMightNotFlowThrough(ret, kind)
+    //         // and
+    //         // not Stage1::returnMayFlowThrough(ret, kind)
+    //       ) and
+    //   testReach1(c, _) and
+    //   n.getEnclosingCallable() = c and
+    //   n.getLocation().getStartLine() = line
+
+    // }
+    
+    // module PostStage1Splitting = Splitting::Splitting<NodeEx, SplittingInput, Stage1LocalFlow>;
+    module PostStage1Splitting = Splitting::Splitting<Location, SplittingInput, Stage1LocalFlow>;
+
+    predicate splitBarrier(NodeEx n1, NodeEx n2, string v) {
+      v = "v1" and PostStage1Splitting::barrier1(n1, n2)
+      or
+      v = "v2" and PostStage1Splitting::barrier2(n1, n2)
+      or
+      v = "v3" and PostStage1Splitting::barrier3(n1, n2)
     }
 
     private predicate sinkNode = Stage1::sinkNode/2;
@@ -3720,9 +3867,11 @@ module MakeImpl<LocationSig Location, InputSig<Location> Lang> {
       ) {
         (
           localStepNodeCand1(node1, node2, preservesValue, _, _, label) and
+          not splitBarrier(node1, node2, _) and
           state1 = state2
           or
           localStateStepNodeCand1(node1, state1, node2, state2, _, _, label) and
+          not splitBarrier(node1, node2, _) and
           preservesValue = false
         ) and
         exists(t) and

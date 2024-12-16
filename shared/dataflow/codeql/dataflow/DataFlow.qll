@@ -344,6 +344,24 @@ signature module InputSig<LocationSig Location> {
 
   /** Holds if `fieldFlowBranchLimit` should be ignored for flow going into/out of `c`. */
   default predicate ignoreFieldFlowBranchLimit(DataFlowCallable c) { none() }
+
+  class SplitKind {
+    string toString();
+
+    Location getLocation();
+
+    predicate inScope(Node n);
+  }
+
+  class Split {
+    string toString();
+
+    Location getLocation();
+
+    SplitKind getKind();
+
+    predicate holds(Node n);
+  }
 }
 
 module Configs<LocationSig Location, InputSig<Location> Lang> {
