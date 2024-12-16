@@ -83,6 +83,14 @@ private module Cached {
 
 import Cached
 
+BasicBlock getNodeBasicBlock(Node n) {
+  n.asExpr().getBasicBlock() = result or
+  n.(ImplicitVarargsArray).getCall() = result.getANode().asCall() or
+  n.(ImplicitInstanceAccess).getInstanceAccess().getCfgNode().getBasicBlock() = result or
+  n.(MallocNode).getClassInstanceExpr().getBasicBlock() = result or
+  result = getNodeBasicBlock(n.(ImplicitPostUpdateNode).getPreUpdateNode())
+}
+
 private predicate explicitInstanceArgument(Call call, Expr instarg) {
   call instanceof MethodCall and
   instarg = call.getQualifier() and
