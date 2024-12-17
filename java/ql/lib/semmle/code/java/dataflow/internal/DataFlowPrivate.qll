@@ -14,6 +14,7 @@ private import DataFlowNodes
 private import codeql.dataflow.VariableCapture as VariableCapture
 private import codeql.util.Boolean
 import DataFlowNodes::Private
+import DataFlowSplitting
 
 private newtype TReturnKind = TNormalReturnKind()
 
@@ -766,105 +767,4 @@ predicate containerContent(ContentSet c) {
   c instanceof CollectionContent or
   c instanceof MapKeyContent or
   c instanceof MapValueContent
-}
-
-private predicate flagControls(SsaVariable flag, Guard g, BasicBlock bb, boolean branch) {
-  flag.getAUse() = g and
-  g.controls(bb, branch)
-}
-
-pragma[nomagic]
-private predicate flagCandidate(SsaVariable flag) {
-  2 <= strictcount(Guard g | flagControls(flag, g, _, _)) and
-  not flag.getCfgNode().getEnclosingStmt().getEnclosingStmt*() instanceof LoopStmt
-}
-
-private predicate flagCanReachControl(SsaVariable flag, BasicBlock bb) {
-  exists(BasicBlock controlled |
-    flagCandidate(flag) and
-    flagControls(flag, _, controlled, _) and
-    bb.getABBSuccessor() = controlled and
-    not flagControls(flag, _, bb, _)
-  )
-  or
-  exists(BasicBlock succ |
-    bb.getABBSuccessor() = succ and
-    flagCanReachControl(flag, succ) and
-    not succ = flag.getBasicBlock()
-  )
-}
-
-private predicate flagRelevant(SsaVariable flag, BasicBlock bb) {
-  exists(BasicBlock prev |
-    flagCandidate(flag) and
-    prev = bb.getABBPredecessor() and
-    flagControls(flag, _, prev, _) and
-    not flagControls(flag, _, bb, _) and
-    flagCanReachControl(flag, bb)
-  )
-  or
-  exists(BasicBlock pred |
-    flagRelevant(flag, pred) and
-    pred.getABBSuccessor() = bb and
-    flagCanReachControl(flag, bb)
-  )
-}
-
-private newtype TSplitKind = TBooleanSplitKind(SsaVariable flag) { flagRelevant(flag, _) }
-
-private newtype TSplit = TBooleanSplit(SsaVariable flag, Boolean branch) { flagRelevant(flag, _) }
-
-abstract class SplitKind extends TSplitKind {
-  abstract string toString();
-
-  abstract Location getLocation();
-
-  abstract predicate inScope(Node n);
-}
-
-class BooleanSplitKind extends SplitKind {
-  private SsaVariable flag;
-
-  BooleanSplitKind() { this = TBooleanSplitKind(flag) }
-
-  override string toString() { result = flag.toString() }
-
-  override Location getLocation() { result = flag.getLocation() }
-
-  override predicate inScope(Node n) {
-    exists(BasicBlock bb |
-      flagRelevant(flag, bb) and
-      bb = getNodeBasicBlock(n)
-    )
-  }
-}
-
-abstract class Split extends TSplit {
-  abstract string toString();
-
-  abstract Location getLocation();
-
-  abstract SplitKind getKind();
-
-  abstract predicate holds(Node n);
-}
-
-class BooleanSplit extends Split {
-  private SsaVariable flag;
-  private boolean branch;
-
-  BooleanSplit() { this = TBooleanSplit(flag, branch) }
-
-  override string toString() { result = flag.toString() + "=" + branch }
-
-  override Location getLocation() { result = flag.getLocation() }
-
-  override SplitKind getKind() { result = TBooleanSplitKind(flag) }
-
-  override predicate holds(Node n) {
-    exists(BasicBlock bb |
-      flagControls(flag, _, bb, branch) and
-      bb = getNodeBasicBlock(n)
-    )
-  }
 }
