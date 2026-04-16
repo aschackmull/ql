@@ -12,7 +12,7 @@ module BaseSsa {
    * targeting local scope variable `v`.
    */
   private predicate definitionAt(
-    AssignableDefinition def, BasicBlock bb, int i, SsaInput::SourceVariable v
+    AssignableDefinition def, BasicBlock bb, int i, SsaImplInput::SourceVariable v
   ) {
     bb.getNode(i) = def.getExpr().getAControlFlowNode() and
     v = def.getTarget() and
@@ -24,7 +24,7 @@ module BaseSsa {
     )
   }
 
-  private predicate implicitEntryDef(Callable c, EntryBasicBlock bb, SsaInput::SourceVariable v) {
+  private predicate entryDef(Callable c, EntryBasicBlock bb, SsaImplInput::SourceVariable v) {
     exists(EntryBasicBlock entry |
       c = entry.getEnclosingCallable() and
       // In case `c` has multiple bodies, we want each body to get its own implicit
@@ -79,7 +79,7 @@ module BaseSsa {
     }
   }
 
-  private module SsaInput implements SsaImplCommon::InputSig<Location, BasicBlock> {
+  private module SsaImplInput implements SsaImplCommon::InputSig<Location, BasicBlock> {
     class SourceVariable = SimpleLocalScopeVariable;
 
     predicate variableWrite(BasicBlock bb, int i, SourceVariable v, boolean certain) {
@@ -88,7 +88,7 @@ module BaseSsa {
         if def.isCertain() then certain = true else certain = false
       )
       or
-      implicitEntryDef(_, bb, v) and
+      entryDef(_, bb, v) and
       i = -1 and
       certain = true
     }
@@ -102,7 +102,37 @@ module BaseSsa {
     }
   }
 
-  private module SsaImpl = SsaImplCommon::Make<Location, Cfg, SsaInput>;
+  private module SsaImpl = SsaImplCommon::Make<Location, Cfg, SsaImplInput>;
+
+  private module SsaInput implements SsaImpl::SsaInputSig {
+    private import csharp as CS
+
+    class Expr = CS::Expr;
+
+    class Parameter = CS::Parameter;
+
+    class VariableWrite extends AssignableDefinition {
+      Expr asExpr() { result = this.getExpr() }
+
+      Expr getValue() { result = this.getSource() }
+
+      predicate isParameterInit(Parameter p) {
+        this.(ImplicitParameterDefinition).getParameter() = p
+      }
+    }
+
+    predicate explicitWrite(VariableWrite w, BasicBlock bb, int i, SsaImplInput::SourceVariable v) {
+      definitionAt(w, bb, i, v)
+      or
+      entryDef(_, bb, v) and
+      i = -1 and
+      w.isParameterInit(v)
+    }
+  }
+
+  module Ssa = SsaImpl::MakeSsa<SsaInput>;
+
+  import Ssa
 
   class Definition extends SsaImpl::Definition {
     final AssignableRead getARead() {
@@ -113,16 +143,16 @@ module BaseSsa {
     }
 
     final AssignableDefinition getDefinition() {
-      exists(BasicBlock bb, int i, SsaInput::SourceVariable v |
+      exists(BasicBlock bb, int i, SsaImplInput::SourceVariable v |
         this.definesAt(v, bb, i) and
         definitionAt(result, bb, i, v)
       )
     }
 
-    final predicate isImplicitEntryDefinition(SsaInput::SourceVariable v) {
+    final predicate isImplicitEntryDefinition(SsaImplInput::SourceVariable v) {
       exists(BasicBlock bb |
         this.definesAt(v, bb, -1) and
-        implicitEntryDef(_, bb, v)
+        entryDef(_, bb, v)
       )
     }
 
@@ -139,9 +169,9 @@ module BaseSsa {
     override Location getLocation() {
       result = this.getDefinition().getLocation()
       or
-      exists(Callable c, BasicBlock bb, SsaInput::SourceVariable v |
+      exists(Callable c, BasicBlock bb, SsaImplInput::SourceVariable v |
         this.definesAt(v, bb, -1) and
-        implicitEntryDef(c, bb, v) and
+        entryDef(c, bb, v) and
         result = c.getLocation()
       )
     }
