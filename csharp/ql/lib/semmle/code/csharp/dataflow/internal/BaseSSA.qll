@@ -7,6 +7,15 @@ module BaseSsa {
   private import AssignableDefinitions
   private import codeql.ssa.Ssa as SsaImplCommon
 
+  cached
+  private module BaseSsaStage {
+    cached
+    predicate ref() { any() }
+
+    cached
+    predicate backref() { (exists(any(SsaDefinition def).getARead()) implies any()) }
+  }
+
   /**
    * Holds if the `i`th node of basic block `bb` is assignable definition `def`,
    * targeting local scope variable `v`.
@@ -83,6 +92,7 @@ module BaseSsa {
     class SourceVariable = SimpleLocalScopeVariable;
 
     predicate variableWrite(BasicBlock bb, int i, SourceVariable v, boolean certain) {
+      BaseSsaStage::ref() and
       exists(AssignableDefinition def |
         definitionAt(def, bb, i, v) and
         if def.isCertain() then certain = true else certain = false
