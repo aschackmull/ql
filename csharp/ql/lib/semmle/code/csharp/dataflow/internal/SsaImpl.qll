@@ -41,6 +41,9 @@ private module SsaImplInput implements SsaImplCommon::InputSig<Location, BasicBl
 }
 
 import SsaImplCommon::Make<Location, Cfg, SsaImplInput> as Impl
+private module SsaInput implements Impl::SsaInputSig {
+}
+module Ssa = Impl::MakeSsa<SsaInput>;
 
 class Definition = Impl::Definition;
 
