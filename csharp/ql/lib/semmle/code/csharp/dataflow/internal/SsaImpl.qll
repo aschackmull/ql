@@ -8,7 +8,7 @@ private import AssignableDefinitions
 private import semmle.code.csharp.controlflow.Guards as Guards
 private import semmle.code.csharp.dataflow.internal.BaseSSA
 
-private module SsaInput implements SsaImplCommon::InputSig<Location, BasicBlock> {
+private module SsaImplInput implements SsaImplCommon::InputSig<Location, BasicBlock> {
   class SourceVariable = Ssa::SourceVariable;
 
   /**
@@ -40,7 +40,7 @@ private module SsaInput implements SsaImplCommon::InputSig<Location, BasicBlock>
   }
 }
 
-import SsaImplCommon::Make<Location, Cfg, SsaInput> as Impl
+import SsaImplCommon::Make<Location, Cfg, SsaImplInput> as Impl
 
 class Definition = Impl::Definition;
 
@@ -715,25 +715,25 @@ private predicate variableReadPseudo(BasicBlock bb, int i, Ssa::SourceVariable v
 
 pragma[noinline]
 deprecated private predicate adjacentDefRead(
-  Definition def, BasicBlock bb1, int i1, BasicBlock bb2, int i2, SsaInput::SourceVariable v
+  Definition def, BasicBlock bb1, int i1, BasicBlock bb2, int i2, SsaImplInput::SourceVariable v
 ) {
   Impl::adjacentDefRead(def, bb1, i1, bb2, i2) and
   v = def.getSourceVariable()
 }
 
 deprecated private predicate adjacentDefReachesRead(
-  Definition def, SsaInput::SourceVariable v, BasicBlock bb1, int i1, BasicBlock bb2, int i2
+  Definition def, SsaImplInput::SourceVariable v, BasicBlock bb1, int i1, BasicBlock bb2, int i2
 ) {
   adjacentDefRead(def, bb1, i1, bb2, i2, v) and
   (
     def.definesAt(v, bb1, i1)
     or
-    SsaInput::variableRead(bb1, i1, v, true)
+    SsaImplInput::variableRead(bb1, i1, v, true)
   )
   or
   exists(BasicBlock bb3, int i3 |
     adjacentDefReachesRead(def, v, bb1, i1, bb3, i3) and
-    SsaInput::variableRead(bb3, i3, _, false) and
+    SsaImplInput::variableRead(bb3, i3, _, false) and
     Impl::adjacentDefRead(def, bb3, i3, bb2, i2)
   )
 }
@@ -741,9 +741,9 @@ deprecated private predicate adjacentDefReachesRead(
 deprecated private predicate adjacentDefReachesUncertainRead(
   Definition def, BasicBlock bb1, int i1, BasicBlock bb2, int i2
 ) {
-  exists(SsaInput::SourceVariable v |
+  exists(SsaImplInput::SourceVariable v |
     adjacentDefReachesRead(def, v, bb1, i1, bb2, i2) and
-    SsaInput::variableRead(bb2, i2, v, false)
+    SsaImplInput::variableRead(bb2, i2, v, false)
   )
 }
 
@@ -751,7 +751,7 @@ deprecated private predicate adjacentDefReachesUncertainRead(
 pragma[nomagic]
 deprecated private predicate lastRefSkipUncertainReads(Definition def, BasicBlock bb, int i) {
   Impl::lastRef(def, bb, i) and
-  not SsaInput::variableRead(bb, i, def.getSourceVariable(), false)
+  not SsaImplInput::variableRead(bb, i, def.getSourceVariable(), false)
   or
   exists(BasicBlock bb0, int i0 |
     Impl::lastRef(def, bb0, i0) and
@@ -855,7 +855,7 @@ private module Cached {
   predicate variableWriteQualifier(
     BasicBlock bb, int i, QualifiedFieldOrPropSourceVariable v, boolean certain
   ) {
-    SsaInput::variableWrite(bb, i, v.getQualifier(), certain) and
+    SsaImplInput::variableWrite(bb, i, v.getQualifier(), certain) and
     // Eliminate corner case where a call definition can overlap with a
     // qualifier definition: if method `M` updates field `F`, then a call
     // to `M` is both an update of `x.M` and `x.M.M`, so the former call
