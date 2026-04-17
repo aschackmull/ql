@@ -33,7 +33,7 @@ module BaseSsa {
     )
   }
 
-  private predicate entryDef(Callable c, EntryBasicBlock bb, SsaImplInput::SourceVariable v) {
+  private predicate entryDef(Callable c, BasicBlock bb, SsaImplInput::SourceVariable v) {
     exists(EntryBasicBlock entry |
       c = entry.getEnclosingCallable() and
       // In case `c` has multiple bodies, we want each body to get its own implicit
